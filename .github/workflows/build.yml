@@ -1,0 +1,54 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Flutter
+      uses: subosito/flutter-action@v2
+      with:
+        flutter-version: '3.24.0'
+        channel: 'stable'
+
+    - name: Cache Flutter dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.flutter-cache
+          ~/.pub-cache
+        key: ${{ runner.os }}-flutter-${{ hashFiles('**/pubspec.yaml') }}
+        restore-keys: |
+          ${{ runner.os }}-flutter-
+
+    - name: Get dependencies
+      run: flutter pub get
+
+    - name: Build debug APK
+      run: flutter build apk --debug
+
+    - name: Upload APK
+      uses: actions/upload-artifact@v3
+      with:
+        name: app-debug.apk
+        path: build/app/outputs/flutter-apk/app-debug.apk
+
+    - name: Build release APK
+      run: flutter build apk --release
+      if: github.event_name == 'push'
+
+    - name: Upload release APK
+      uses: actions/upload-artifact@v3
+      with:
+        name: app-release.apk
+        path: build/app/outputs/flutter-apk/app-release.apk
+      if: github.event_name == 'push'
