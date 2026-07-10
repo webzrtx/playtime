@@ -1,56 +1,104 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../services/trtc_service.dart';
+import '../config/trtc_config.dart';
 
-/// Voice room screen with participant list and controls
+/// Voice room screen with real TRTC voice chat
 class VoiceRoomScreen extends StatefulWidget {
-  const VoiceRoomScreen({super.key});
+  final String? roomId;
+  final bool isHost;
+
+  const VoiceRoomScreen({
+    super.key,
+    this.roomId,
+    this.isHost = false,
+  });
 
   @override
   State<VoiceRoomScreen> createState() => _VoiceRoomScreenState();
 }
 
 class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
+  final TRTCService _trtc = TRTCService();
+  bool _isInitialized = false;
   bool _isMuted = false;
   bool _isSpeakerOn = true;
   bool _isHandRaised = false;
+  String _roomId = '';
+  String _userId = '';
 
-  // Sample participants
-  final List<_Participant> _participants = [
-    _Participant(name: 'ProGamer', isHost: true, isSpeaking: true, avatarColor: Colors.deepPurple),
-    _Participant(name: 'SniperQueen', isHost: false, isSpeaking: false, avatarColor: Colors.pink),
-    _Participant(name: 'MidLane', isHost: false, isSpeaking: true, avatarColor: Colors.orange),
-    _Participant(name: 'MusicLover', isHost: false, isSpeaking: false, avatarColor: Colors.teal),
-    _Participant(name: 'Gamer123', isHost: false, isSpeaking: false, avatarColor: Colors.green),
-  ];
+  // Sample participants (in real app, this comes from TRTC callbacks)
+  final List<_Participant> _participants = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _initTRTC();
+  }
+
+  Future<void> _initTRTC() async {
+    try {
+      await _trtc.initialize(
+        sdkAppId: TRTCConfig.sdkAppId,
+        secretKey: TRTCConfig.secretKey,
+      );
+
+      // Generate user ID (in production, use authenticated user)
+      _userId = 'user_${DateTime.now().millisecondsSinceEpoch}';
+      _roomId = widget.roomId ?? TRTCConfig.defaultRoomId.toString();
+
+      if (widget.isHost) {
+        await _trtc.createRoom(roomId: _roomId, userId: _userId);
+      } else {
+        await _trtc.joinRoom(roomId: _roomId, userId: _userId);
+      }
+
+      // Add self to participants
+      _participants.add(_Participant(
+        name: _userId,
+        isHost: widget.isHost,
+        isSpeaking: true,
+        avatarColor: Colors.deepPurple,
+      ));
+
+      setState(() => _isInitialized = true);
+    } catch (e) {
+      debugPrint('TRTC init error: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    _trtc.leaveRoom();
+    super.dispose();
+  }
+
+  void _toggleMute() async {
+    await _trtc.toggleMute();
+    setState(() => _isMuted = _trtc.isMuted);
+  }
+
+  void _toggleSpeaker() async {
+    await _trtc.toggleSpeaker();
+    setState(() => _isSpeakerOn = _trtc.isSpeakerOn);
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Gaming Lounge', style: TextStyle(color: Colors.white)),
-        backgroundColor: const Color(0xFF1A1A2E),
+        title: Text('Room $_roomId', style: const TextStyle(color: Colors.white)),
+        backgroundColor: Colors.white,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
+          icon: const Icon(Icons.arrow_back, color: Colors.black),
+          onPressed: () {
+            _trtc.leaveRoom();
+            Navigator.pop(context);
+          },
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.person_add, color: Colors.white),
-            onPressed: () {},
-          ),
-          IconButton(
-            icon: const Icon(Icons.more_vert, color: Colors.white),
-            onPressed: () {},
-          ),
-        ],
       ),
       body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [Color(0xFF1A1A2E), Color(0xFF16213E)],
-          ),
-        ),
+        color: Colors.white,
         child: Column(
           children: [
             // Room info
@@ -61,14 +109,17 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      color: Colors.green.withOpacity(0.3),
+                      color: Colors.green.shade50,
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    child: const Row(
+                    child: Row(
                       children: [
-                        Icon(Icons.people, size: 16, color: Colors.green),
-                        SizedBox(width: 4),
-                        Text('5/10', style: TextStyle(color: Colors.green)),
+                        Icon(Icons.people, size: 16, color: Colors.green.shade700),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${_participants.length}/10',
+                          style: TextStyle(color: Colors.green.shade700),
+                        ),
                       ],
                     ),
                   ),
@@ -76,41 +127,55 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
-                      color: Colors.deepPurple.withOpacity(0.3),
+                      color: Colors.deepPurple.shade50,
                       borderRadius: BorderRadius.circular(20),
                     ),
-                    child: const Text('Free Chat', style: TextStyle(color: Colors.deepPurple)),
+                    child: Text(
+                      'Live',
+                      style: TextStyle(color: Colors.deepPurple.shade700),
+                    ),
                   ),
+                  const Spacer(),
+                  if (!_isInitialized)
+                    const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
                 ],
               ),
             ),
 
             // Participants grid
             Expanded(
-              child: GridView.builder(
-                padding: const EdgeInsets.all(16),
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 3,
-                  crossAxisSpacing: 12,
-                  mainAxisSpacing: 12,
-                  childAspectRatio: 0.8,
-                ),
-                itemCount: _participants.length,
-                itemBuilder: (context, index) {
-                  final participant = _participants[index];
-                  return _ParticipantCard(participant: participant);
-                },
-              ),
+              child: _participants.isEmpty
+                  ? const Center(
+                      child: Text('Connecting...', style: TextStyle(color: Colors.grey)),
+                    )
+                  : GridView.builder(
+                      padding: const EdgeInsets.all(16),
+                      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: 3,
+                        crossAxisSpacing: 12,
+                        mainAxisSpacing: 12,
+                        childAspectRatio: 0.8,
+                      ),
+                      itemCount: _participants.length,
+                      itemBuilder: (context, index) {
+                        final participant = _participants[index];
+                        return _ParticipantCard(participant: participant);
+                      },
+                    ),
             ),
 
             // Controls
             Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: const Color(0xFF16213E),
+                color: Colors.grey.shade100,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.3),
+                    color: Colors.black.withOpacity(0.1),
                     blurRadius: 10,
                     offset: const Offset(0, -2),
                   ),
@@ -120,37 +185,36 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    // Mute button
                     _ControlButton(
                       icon: _isMuted ? Icons.mic_off : Icons.mic,
                       label: _isMuted ? 'Unmute' : 'Mute',
-                      color: _isMuted ? Colors.red : Colors.white,
+                      color: _isMuted ? Colors.red : Colors.black,
                       isActive: _isMuted,
-                      onTap: () => setState(() => _isMuted = !_isMuted),
+                      onTap: _toggleMute,
                     ),
-                    // Speaker button
                     _ControlButton(
                       icon: _isSpeakerOn ? Icons.volume_up : Icons.volume_off,
                       label: 'Speaker',
-                      color: _isSpeakerOn ? Colors.green : Colors.white,
+                      color: _isSpeakerOn ? Colors.green : Colors.black,
                       isActive: _isSpeakerOn,
-                      onTap: () => setState(() => _isSpeakerOn = !_isSpeakerOn),
+                      onTap: _toggleSpeaker,
                     ),
-                    // Raise hand
                     _ControlButton(
                       icon: Icons.pan_tool,
                       label: 'Hand',
-                      color: _isHandRaised ? Colors.orange : Colors.white,
+                      color: _isHandRaised ? Colors.orange : Colors.black,
                       isActive: _isHandRaised,
                       onTap: () => setState(() => _isHandRaised = !_isHandRaised),
                     ),
-                    // Leave room
                     _ControlButton(
                       icon: Icons.call_end,
                       label: 'Leave',
                       color: Colors.red,
                       isActive: false,
-                      onTap: () => Navigator.pop(context),
+                      onTap: () {
+                        _trtc.leaveRoom();
+                        Navigator.pop(context);
+                      },
                     ),
                   ],
                 ),
@@ -198,15 +262,6 @@ class _ParticipantCard extends StatelessWidget {
                 border: participant.isSpeaking
                     ? Border.all(color: Colors.green, width: 3)
                     : null,
-                boxShadow: participant.isSpeaking
-                    ? [
-                        BoxShadow(
-                          color: Colors.green.withOpacity(0.5),
-                          blurRadius: 15,
-                          spreadRadius: 2,
-                        ),
-                      ]
-                    : null,
               ),
               child: const Icon(Icons.person, color: Colors.white, size: 30),
             ),
@@ -229,7 +284,7 @@ class _ParticipantCard extends StatelessWidget {
         Text(
           participant.name,
           style: const TextStyle(
-            color: Colors.white,
+            color: Colors.black,
             fontSize: 12,
           ),
           maxLines: 1,
@@ -266,7 +321,7 @@ class _ControlButton extends StatelessWidget {
             width: 50,
             height: 50,
             decoration: BoxDecoration(
-              color: isActive ? color.withOpacity(0.2) : Colors.white.withOpacity(0.1),
+              color: isActive ? color.withOpacity(0.2) : Colors.grey.shade200,
               shape: BoxShape.circle,
               border: Border.all(color: color.withOpacity(0.5)),
             ),
@@ -275,7 +330,7 @@ class _ControlButton extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             label,
-            style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 10),
+            style: TextStyle(color: Colors.grey.shade700, fontSize: 10),
           ),
         ],
       ),

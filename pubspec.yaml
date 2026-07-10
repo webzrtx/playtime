@@ -34,6 +34,15 @@ dependencies:
   # State management
   provider: ^6.1.2
 
+  # Tencent TRTC for real voice chat
+  tencent_rtc_sdk: ^13.4.1
+  
+  # UUID for room IDs
+  uuid: ^4.3.3
+  
+  # HTTP for API calls
+  http: ^1.2.0
+
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.8
