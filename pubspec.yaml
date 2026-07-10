@@ -36,6 +36,7 @@ dependencies:
 
   # Tencent TRTC for real voice chat
   tencent_rtc_sdk: ^13.4.1
+  crypto: ^3.0.3
   
   # UUID for room IDs
   uuid: ^4.3.3

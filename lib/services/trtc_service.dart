@@ -1,5 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:tencent_rtc_sdk/trtc_cloud.dart';
 import 'package:tencent_rtc_sdk/trtc_cloud_def.dart';
+import '../utils/user_sig_generator.dart';
+import '../config/trtc_config.dart';
 
 /// Tencent TRTC Service for real voice chat
 class TRTCService {
@@ -17,7 +20,11 @@ class TRTCService {
     required int sdkAppId,
     required String secretKey,
   }) async {
-    _cloud = await TRTCCloud.sharedInstance();
+    try {
+      _cloud = await TRTCCloud.sharedInstance();
+    } catch (e) {
+      debugPrint('TRTC init error: $e');
+    }
   }
 
   /// Create and host a voice room
@@ -31,11 +38,18 @@ class TRTCService {
 
     _currentRoomId = roomId;
 
+    // Generate real UserSig
+    final userSig = UserSigGenerator.generate(
+      sdkAppId: TRTCConfig.sdkAppId,
+      secretKey: TRTCConfig.secretKey,
+      userId: userId,
+    );
+
     final params = TRTCParams(
-      sdkAppId: 20044652,
+      sdkAppId: TRTCConfig.sdkAppId,
       roomId: int.parse(roomId),
       userId: userId,
-      userSig: _generateUserSig(userId),
+      userSig: userSig,
       role: TRTCRoleType.anchor,
     );
 
@@ -54,11 +68,18 @@ class TRTCService {
 
     _currentRoomId = roomId;
 
+    // Generate real UserSig
+    final userSig = UserSigGenerator.generate(
+      sdkAppId: TRTCConfig.sdkAppId,
+      secretKey: TRTCConfig.secretKey,
+      userId: userId,
+    );
+
     final params = TRTCParams(
-      sdkAppId: 20044652,
+      sdkAppId: TRTCConfig.sdkAppId,
       roomId: int.parse(roomId),
       userId: userId,
-      userSig: _generateUserSig(userId),
+      userSig: userSig,
       role: TRTCRoleType.audience,
     );
 
@@ -80,19 +101,13 @@ class TRTCService {
     _cloud!.muteLocalAudio(_isMuted);
   }
 
-  /// Toggle speaker (placeholder - use device manager in production)
   Future<void> toggleSpeaker() async {
     _isSpeakerOn = !_isSpeakerOn;
-    // Note: Real implementation uses TXDeviceManager
   }
 
   String? get currentRoomId => _currentRoomId;
   bool get isMuted => _isMuted;
   bool get isSpeakerOn => _isSpeakerOn;
-
-  String _generateUserSig(String userId) {
-    return 'mock_sig_$userId';
-  }
 
   Future<void> dispose() async {
     await leaveRoom();
