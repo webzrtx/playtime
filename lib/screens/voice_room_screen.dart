@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../models/user_model.dart';
 import '../models/room_model.dart';
 import '../services/trtc_service.dart';
+import '../services/pip_service.dart';
 import '../config/trtc_config.dart';
 import '../widgets/speaking_avatar.dart';
 import '../widgets/user_avatar.dart';
@@ -77,6 +78,16 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
     if (mounted) setState(() {});
   }
 
+  /// Enter PiP — audio continues in background, room stays alive.
+  Future<void> _enterPip() async {
+    final entered = await PipService.enterPip();
+    if (!entered && mounted) {
+      // PiP not supported → just go back but keep room alive
+      Navigator.pop(context);
+    }
+  }
+
+  /// Leave room completely — disconnect and destroy.
   Future<void> _leaveRoom() async {
     final roomModel = Provider.of<RoomModel>(context, listen: false);
     if (widget.isHost) {
@@ -213,7 +224,7 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
       child: Row(
         children: [
           GestureDetector(
-            onTap: _leaveRoom,
+            onTap: _enterPip,
             child: const Icon(Icons.arrow_back_ios, color: Colors.white, size: 20),
           ),
           const SizedBox(width: 12),
