@@ -8,7 +8,7 @@
     
     <application
         android:label="weplay_clone"
-        android:name="${applicationName}"
+        android:name=".MainApplication"
         android:icon="@mipmap/ic_launcher"
         android:extractNativeLibs="true"
         android:usesCleartextTraffic="true">
