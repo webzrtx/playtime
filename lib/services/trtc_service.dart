@@ -23,27 +23,33 @@ enum ParticipantRole { host, anchor, audience }
 /// Participant data surfaced to the UI.
 class Participant {
   final String userId;
+  final String displayName;
   final ParticipantRole role;
   final bool isSpeaking;
   final int volume;
   const Participant({
     required this.userId,
+    this.displayName = '',
     this.role = ParticipantRole.audience,
     this.isSpeaking = false,
     this.volume = 0,
   });
+
+  String get label => displayName.isNotEmpty ? displayName : userId;
 
   bool get hasSeat => role != ParticipantRole.audience;
   bool get isHost => role == ParticipantRole.host;
 
   Participant copyWith({
     String? userId,
+    String? displayName,
     ParticipantRole? role,
     bool? isSpeaking,
     int? volume,
   }) {
     return Participant(
       userId: userId ?? this.userId,
+      displayName: displayName ?? this.displayName,
       role: role ?? this.role,
       isSpeaking: isSpeaking ?? this.isSpeaking,
       volume: volume ?? this.volume,
@@ -195,6 +201,7 @@ class TRTCService extends ChangeNotifier {
   Future<void> createRoom({
     required String roomId,
     required String userId,
+    String displayName = '',
   }) async {
     _userId = userId;
     _roomId = roomId;
@@ -209,7 +216,11 @@ class TRTCService extends ChangeNotifier {
     );
 
     _participants.clear();
-    _participants.add(Participant(userId: userId, role: ParticipantRole.host));
+    _participants.add(Participant(
+      userId: userId,
+      displayName: displayName,
+      role: ParticipantRole.host,
+    ));
 
     final params = TRTCParams(
       sdkAppId: TRTCConfig.sdkAppId,
@@ -232,6 +243,7 @@ class TRTCService extends ChangeNotifier {
   Future<void> joinRoom({
     required String roomId,
     required String userId,
+    String displayName = '',
   }) async {
     _userId = userId;
     _roomId = roomId;
@@ -246,9 +258,13 @@ class TRTCService extends ChangeNotifier {
     );
 
     _participants.clear();
-    _participants.add(Participant(userId: userId, role: ParticipantRole.audience));
+    _participants.add(Participant(
+      userId: userId,
+      displayName: displayName,
+      role: ParticipantRole.audience,
+    ));
 
-    final params = TRTCParams(
+    final params2 = TRTCParams(
       sdkAppId: TRTCConfig.sdkAppId,
       userId: userId,
       userSig: userSig,
@@ -256,7 +272,7 @@ class TRTCService extends ChangeNotifier {
       role: TRTCRoleType.audience,
     );
 
-    _cloud!.enterRoom(params, TRTCAppScene.voiceChatRoom);
+    _cloud!.enterRoom(params2, TRTCAppScene.voiceChatRoom);
 
     // Audience doesn't publish audio — just listen + volume callbacks
     _cloud!.enableAudioVolumeEvaluation(

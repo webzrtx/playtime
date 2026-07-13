@@ -35,6 +35,12 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
     return 'guest_${DateTime.now().millisecondsSinceEpoch.remainder(100000)}';
   }
 
+  String _getDisplayName() {
+    final user = Provider.of<UserModel>(context, listen: false);
+    if (user.username.isNotEmpty) return user.username;
+    return 'Guest';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -49,12 +55,13 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
     }
     try {
       final userId = _getUserId();
+      final displayName = _getDisplayName();
       _lastUserId = userId;
       await _trtc.initialize();
       if (widget.isHost) {
-        await _trtc.createRoom(roomId: _roomId, userId: userId);
+        await _trtc.createRoom(roomId: _roomId, userId: userId, displayName: displayName);
       } else {
-        await _trtc.joinRoom(roomId: _roomId, userId: userId);
+        await _trtc.joinRoom(roomId: _roomId, userId: userId, displayName: displayName);
       }
       _trtc.addListener(_onUpdate);
       if (mounted) setState(() => _isJoined = true);
@@ -118,7 +125,7 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
         child: Column(
           children: [
             // -- Top bar --
-            _buildTopBar(totalCount),
+            _buildTopBar(totalCount, anchors.isNotEmpty ? anchors.first : null),
 
             // -- Error banner --
             if (_trtc.lastError != null)
@@ -194,24 +201,56 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
 
   // ── Top Bar ────────────────────────────────────────────────────────
 
-  Widget _buildTopBar(int totalCount) {
+  Widget _buildTopBar(int totalCount, Participant? host) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         children: [
           GestureDetector(
             onTap: _leaveRoom,
             child: const Icon(Icons.arrow_back_ios, color: Colors.white, size: 20),
           ),
-          const SizedBox(width: 8),
+          const SizedBox(width: 12),
+          // Host avatar
+          Container(
+            width: 38, height: 38,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: const LinearGradient(
+                colors: [_gold, Color(0xFFE89500)],
+              ),
+            ),
+            child: const Icon(Icons.person, color: Colors.white, size: 20),
+          ),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Room $_roomId',
-                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        host?.label ?? 'Host',
+                        style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: _gold.withOpacity(0.2),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: _gold.withOpacity(0.5), width: 0.5),
+                      ),
+                      child: const Text('Host',
+                          style: TextStyle(color: _gold, fontSize: 10, fontWeight: FontWeight.w600)),
+                    ),
+                  ],
                 ),
+                const SizedBox(height: 2),
                 Row(
                   children: [
                     const Icon(Icons.circle, size: 6, color: Colors.greenAccent),
@@ -266,7 +305,7 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        owner.userId.length > 8 ? '${owner.userId.substring(0, 6)}..' : owner.userId,
+                        owner.label,
                         style: const TextStyle(color: Colors.white, fontSize: 10),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -504,23 +543,14 @@ class _SeatCircle extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    (p?.userId.length ?? 0) > 8
-                        ? '${p!.userId.substring(0, 6)}..'
-                        : (p?.userId ?? ''),
+                    p?.label ?? '',
                     style: const TextStyle(color: Colors.white70, fontSize: 9),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ],
               )
-            : Text(
-                '$seatNum',
-                style: TextStyle(
-                  color: Colors.white.withOpacity(0.35),
-                  fontSize: 22,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+            : Icon(Icons.mic_none, color: Colors.white.withOpacity(0.2), size: 24),
       ),
     );
   }
@@ -549,7 +579,7 @@ class _AudienceRow extends StatelessWidget {
             child: const Icon(Icons.person, size: 16, color: Colors.white54),
           ),
           const SizedBox(width: 10),
-          Text(participant.userId,
+          Text(participant.label,
               style: const TextStyle(color: Colors.white70, fontSize: 13)),
           const Spacer(),
           Icon(Icons.headset_mic, size: 16, color: Colors.white.withOpacity(0.3)),
