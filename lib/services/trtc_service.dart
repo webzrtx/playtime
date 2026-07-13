@@ -40,7 +40,8 @@ class TRTCService extends ChangeNotifier {
   String? _lastError;
 
   bool _isMuted = false;
-  bool _isSpeakerOn = true; // speakerPhone = true, earpiece = false
+  bool _isSpeakerOn = true;
+  int _localVolume = 0;
 
   final List<Participant> _participants = [];
   final Map<String, int> _volumes = {};
@@ -52,6 +53,7 @@ class TRTCService extends ChangeNotifier {
   bool get isMuted => _isMuted;
   bool get isSpeakerOn => _isSpeakerOn;
   String? get lastError => _lastError;
+  int get localVolume => _localVolume;
   List<Participant> get participants => List.unmodifiable(_participants);
   Map<String, int> get volumes => Map.unmodifiable(_volumes);
 
@@ -103,7 +105,11 @@ class TRTCService extends ChangeNotifier {
       },
       onUserVoiceVolume: (userVolumes, totalVolume) {
         for (final v in userVolumes) {
-          _volumes[v.userId] = v.volume;
+          if (v.userId.isEmpty) {
+            _localVolume = v.volume;
+          } else {
+            _volumes[v.userId] = v.volume;
+          }
         }
         // Update speaking flag on participants
         for (var i = 0; i < _participants.length; i++) {

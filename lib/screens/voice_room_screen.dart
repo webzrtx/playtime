@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:provider/provider.dart';
+import '../models/user_model.dart';
 import '../services/trtc_service.dart';
 import '../config/trtc_config.dart';
 
@@ -25,8 +27,12 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
   bool _isHandRaised = false;
 
   String get _roomId => widget.roomId ?? TRTCConfig.defaultRoomId.toString();
-  String get _userId =>
-      'user_${DateTime.now().millisecondsSinceEpoch.remainder(100000)}';
+  String _getUserId() {
+    final user = Provider.of<UserModel>(context, listen: false);
+    if (user.id.isNotEmpty) return user.id;
+    // Fallback: stable random ID for guest without login
+    return 'user_${DateTime.now().millisecondsSinceEpoch.remainder(100000)}';
+  }
 
   @override
   void initState() {
@@ -45,12 +51,13 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
     }
 
     try {
+      final userId = _getUserId();
       await _trtc.initialize();
 
       if (widget.isHost) {
-        await _trtc.createRoom(roomId: _roomId, userId: _userId);
+        await _trtc.createRoom(roomId: _roomId, userId: userId);
       } else {
-        await _trtc.joinRoom(roomId: _roomId, userId: _userId);
+        await _trtc.joinRoom(roomId: _roomId, userId: userId);
       }
 
       _trtc.addListener(_onServiceUpdate);
@@ -99,57 +106,81 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
         color: Colors.white,
         child: Column(
           children: [
-            // Status bar
+            // Status bar with room info + mic level
             Container(
               padding: const EdgeInsets.all(16),
-              child: Row(
+              child: Column(
                 children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.green.shade50,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.green.shade50,
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(Icons.people,
+                                size: 16, color: Colors.green.shade700),
+                            const SizedBox(width: 4),
+                            Text('${participants.length}/10',
+                                style: TextStyle(
+                                    color: Colors.green.shade700)),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _isJoined ? '🟢 Live — Room $_roomId' : 'Connecting...',
+                          style: TextStyle(
+                            color: _isJoined
+                                ? Colors.deepPurple.shade700
+                                : Colors.orange.shade700,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  if (_isJoined) ...[
+                    const SizedBox(height: 10),
+                    // Mic volume bar
+                    Row(
                       children: [
-                        Icon(Icons.people,
-                            size: 16, color: Colors.green.shade700),
-                        const SizedBox(width: 4),
-                        Text('${participants.length}/10',
-                            style: TextStyle(color: Colors.green.shade700)),
+                        Icon(
+                          _trtc.isMuted ? Icons.mic_off : Icons.mic,
+                          size: 16,
+                          color: _trtc.isMuted ? Colors.red : Colors.green,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          _trtc.isMuted ? 'MUTED' : 'Mic level: ${_trtc.localVolume}',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: _trtc.isMuted ? Colors.red : Colors.grey.shade700,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TweenAnimationBuilder<double>(
+                            tween: Tween(
+                              begin: 0,
+                              end: _trtc.isMuted ? 0 : _trtc.localVolume / 100.0,
+                            ),
+                            duration: const Duration(milliseconds: 150),
+                            builder: (context, value, _) => LinearProgressIndicator(
+                              value: value,
+                              backgroundColor: Colors.grey.shade200,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                value > 0.3 ? Colors.green : Colors.grey,
+                              ),
+                            ),
+                          ),
+                        ),
                       ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: _isJoined
-                          ? Colors.deepPurple.shade50
-                          : Colors.orange.shade50,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      _isJoined ? 'Live' : 'Connecting...',
-                      style: TextStyle(
-                        color: _isJoined
-                            ? Colors.deepPurple.shade700
-                            : Colors.orange.shade700,
-                      ),
-                    ),
-                  ),
-                  if (_trtc.lastError != null) ...[
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        _trtc.lastError!,
-                        style:
-                            TextStyle(color: Colors.red.shade700, fontSize: 11),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
                     ),
                   ],
                 ],
