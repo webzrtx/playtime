@@ -163,7 +163,7 @@ class TRTCService extends ChangeNotifier {
       sdkAppId: TRTCConfig.sdkAppId,
       userId: userId,
       userSig: userSig,
-      roomId: int.tryParse(roomId) ?? TRTCConfig.defaultRoomId,
+      strRoomId: roomId,
       role: TRTCRoleType.anchor,
     );
 
@@ -199,7 +199,7 @@ class TRTCService extends ChangeNotifier {
       sdkAppId: TRTCConfig.sdkAppId,
       userId: userId,
       userSig: userSig,
-      roomId: int.tryParse(roomId) ?? TRTCConfig.defaultRoomId,
+      strRoomId: roomId,
       role: TRTCRoleType.anchor,
     );
 
