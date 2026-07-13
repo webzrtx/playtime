@@ -7,12 +7,14 @@ class ChatMessage {
   final String text;
   final DateTime timestamp;
   final bool isSelf;
+  final bool isSystem;
 
   ChatMessage({
     required this.senderId,
     required this.senderName,
     required this.text,
-    required this.isSelf,
+    this.isSelf = false,
+    this.isSystem = false,
     DateTime? timestamp,
   }) : timestamp = timestamp ?? DateTime.now();
 }

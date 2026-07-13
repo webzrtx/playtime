@@ -149,18 +149,6 @@ class _GiftAnimationState extends State<_GiftAnimation>
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(widget.gift.emoji, style: const TextStyle(fontSize: 48)),
-                      const SizedBox(height: 4),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                        decoration: BoxDecoration(
-                          color: Colors.black54,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Text(
-                          '${widget.sender} sent ${widget.gift.label}',
-                          style: const TextStyle(color: Colors.white, fontSize: 11),
-                        ),
-                      ),
                     ],
                   ),
                 ),

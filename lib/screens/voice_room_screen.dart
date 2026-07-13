@@ -103,23 +103,25 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
         isSelf: true,
       ));
     });
-    // Auto-scroll
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_chatScroll.hasClients) {
-        _chatScroll.animateTo(
-          _chatScroll.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 200),
-          curve: Curves.easeOut,
-        );
-      }
-    });
+    _scrollChatToBottom();
   }
 
   void _showGiftPanel() {
     GiftPanel.show(context, onSend: (gift) {
       final user = Provider.of<UserModel>(context, listen: false);
-      GiftOverlay.show(context,
-          gift: gift, sender: user.username.isNotEmpty ? user.username : 'You');
+      final sender = user.username.isNotEmpty ? user.username : 'You';
+      GiftOverlay.show(context, gift: gift, sender: sender);
+
+      // System chat message
+      setState(() {
+        _chatMessages.add(ChatMessage(
+          senderId: 'system',
+          senderName: '',
+          text: '${gift.emoji} $sender sent a ${gift.label}',
+          isSystem: true,
+        ));
+      });
+      _scrollChatToBottom();
     });
   }
 
@@ -150,6 +152,18 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
     if (text.isEmpty) return;
     _sendChatMessage(text);
     _chatCtrl.clear();
+  }
+
+  void _scrollChatToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_chatScroll.hasClients) {
+        _chatScroll.animateTo(
+          _chatScroll.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+      }
+    });
   }
 
   @override
@@ -259,6 +273,28 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
                     itemCount: _chatMessages.length,
                     itemBuilder: (_, i) {
                       final m = _chatMessages[i];
+                      // System message (gift notification, etc.)
+                      if (m.isSystem) {
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: Center(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                              decoration: BoxDecoration(
+                                color: _pink.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(m.text,
+                                  style: TextStyle(
+                                    color: _pink,
+                                    fontSize: 12,
+                                    fontStyle: FontStyle.italic,
+                                  )),
+                            ),
+                          ),
+                        );
+                      }
+                      // Regular message
                       return Padding(
                         padding: const EdgeInsets.only(bottom: 6),
                         child: Row(
