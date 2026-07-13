@@ -8,6 +8,9 @@ import '../services/pip_service.dart';
 import '../config/trtc_config.dart';
 import '../widgets/speaking_avatar.dart';
 import '../widgets/user_avatar.dart';
+import '../widgets/gift_panel.dart';
+import '../widgets/gift_overlay.dart';
+import '../models/gift_model.dart';
 
 // WePlay-inspired voice room screen
 class VoiceRoomScreen extends StatefulWidget {
@@ -76,6 +79,15 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
 
   void _onUpdate() {
     if (mounted) setState(() {});
+  }
+
+  void _showGiftPanel() {
+    GiftPanel.show(context, onSend: (gift) {
+      final user = Provider.of<UserModel>(context, listen: false);
+      GiftOverlay.show(context,
+          gift: gift,
+          sender: user.username.isNotEmpty ? user.username : 'You');
+    });
   }
 
   /// Enter PiP — audio continues in background, room stays alive.
@@ -453,7 +465,7 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
                   label: 'Gift',
                   active: false,
                   activeColor: _pink,
-                  onTap: () {},
+                  onTap: () => _showGiftPanel(),
                 ),
                 _BottomBtn(
                   icon: _isHandRaised ? Icons.pan_tool : Icons.front_hand,
