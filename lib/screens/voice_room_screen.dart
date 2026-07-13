@@ -109,14 +109,19 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
     final allParticipants = _trtc.participants;
     final totalCount = allParticipants.length;
 
-    // Build seat map: which anchors occupy which seat positions
-    final seatMap = <int, Participant>{};
+    // Build seat map: anchors who are not the host occupy seat positions
+    final seatMap = <int, Participant?>{};
     int seatIdx = 0;
     for (final a in anchors) {
+      if (a.isHost) continue; // host stays in owner seat, not in grid
       if (seatIdx < _totalSeats) {
         seatMap[seatIdx] = a;
         seatIdx++;
       }
+    }
+    // Fill remaining seats as empty
+    for (int i = seatIdx; i < _totalSeats; i++) {
+      seatMap[i] = null;
     }
 
     return Scaffold(
@@ -328,7 +333,7 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
 
   // ── Seat Grid ──────────────────────────────────────────────────────
 
-  Widget _buildSeatGrid(Map<int, Participant> seatMap) {
+  Widget _buildSeatGrid(Map<int, Participant?> seatMap) {
     return Column(
       children: [
         _buildSectionHeader('Mic Seats', _totalSeats),
@@ -342,7 +347,7 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
     );
   }
 
-  Widget _buildSeatRow(int start, int count, Map<int, Participant> seatMap) {
+  Widget _buildSeatRow(int start, int count, Map<int, Participant?> seatMap) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: List.generate(count, (i) {
