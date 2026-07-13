@@ -259,30 +259,30 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
                     itemCount: _chatMessages.length,
                     itemBuilder: (_, i) {
                       final m = _chatMessages[i];
-                      final isSelf = m.isSelf;
                       return Padding(
-                        padding: const EdgeInsets.only(bottom: 4),
+                        padding: const EdgeInsets.only(bottom: 6),
                         child: Row(
-                          mainAxisAlignment: isSelf ? MainAxisAlignment.end : MainAxisAlignment.start,
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            if (!isSelf) ...[
-                              UserAvatar(userId: m.senderId, displayName: m.senderName, size: 20),
-                              const SizedBox(width: 6),
-                            ],
-                            Flexible(
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                decoration: BoxDecoration(
-                                  color: isSelf ? _accent.withOpacity(0.15) : Colors.white.withOpacity(0.06),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Text(
-                                  isSelf ? m.text : '${m.senderName}: ${m.text}',
-                                  style: TextStyle(
-                                    color: isSelf ? _accent : Colors.white.withOpacity(0.8),
-                                    fontSize: 12,
+                            UserAvatar(userId: m.senderId, displayName: m.senderName, size: 24),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(m.senderName,
+                                      style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 11)),
+                                  const SizedBox(height: 2),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white.withOpacity(0.06),
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    child: Text(m.text,
+                                        style: TextStyle(color: Colors.white.withOpacity(0.85), fontSize: 13)),
                                   ),
-                                ),
+                                ],
                               ),
                             ),
                           ],
