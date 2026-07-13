@@ -28,6 +28,23 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+
+        ndk {
+            abiFilters "arm64-v8a", "armeabi-v7a"
+        }
+    }
+
+    packagingOptions {
+        // TRTC native libs must not be compressed/stripped
+        jniLibs {
+            useLegacyPackaging = true
+        }
+        pickFirst '**/libliteavsdk.so'
+        pickFirst '**/libtcpcore-master.so'
+        pickFirst '**/libtcpdownloadproxy.so'
+        pickFirst '**/libtxffmpeg.so'
+        pickFirst '**/libtxsoundtouch.so'
+        pickFirst '**/libtcpthirdparties-master.so'
     }
 
     buildTypes {

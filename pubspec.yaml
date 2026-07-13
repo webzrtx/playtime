@@ -31,13 +31,15 @@ dependencies:
   flutter:
     sdk: flutter
 
+  # Tencent TRTC - real-time voice chat SDK
+  tencent_rtc_sdk: ^13.4.2
+
+  # Crypto for UserSig HMAC-SHA256 generation
+  crypto: ^3.0.6
+
   # State management
   provider: ^6.1.2
 
-  # Tencent Live Kit for voice/video chat
-  # tencent_live_uikit temporarily disabled due to Flutter version constraints
-  # tencent_live_uikit: ^5.0.0
-  
   # UUID for room IDs
   uuid: ^4.3.3
   
