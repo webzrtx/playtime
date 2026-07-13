@@ -7,7 +7,7 @@ class TRTCConfig {
 
   /// Secret Key for UserSig generation
   /// TODO: use backend service instead of embedding in client
-  static const String secretKey = '582fcb6574d81dc547c5f583e06765a93b7db00fd32c15e709ea9e42f05c4b1c';
+  static const String secretKey = '971dd4f906087a876b1f6e179022a7b4549bb9ccab4bc1b4e31e48aea6bf47c0';
 
   /// Default room ID for dev/testing
   static const int defaultRoomId = 12345;
