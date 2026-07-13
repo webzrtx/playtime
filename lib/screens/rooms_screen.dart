@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:uuid/uuid.dart';
 import '../models/room_model.dart';
+import 'voice_room_screen.dart';
 
 /// Screen showing list of voice rooms
 class RoomsScreen extends StatefulWidget {
@@ -20,6 +22,82 @@ class _RoomsScreenState extends State<RoomsScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Provider.of<RoomModel>(context, listen: false).loadRooms();
     });
+  }
+
+  void _createAndEnterRoom(String name) {
+    final roomModel = Provider.of<RoomModel>(context, listen: false);
+    final room = Room(
+      id: const Uuid().v4().substring(0, 8),
+      name: name,
+      hostId: 'self',
+      hostName: 'You',
+      currentPlayers: 1,
+      maxPlayers: 10,
+      isPrivate: false,
+      gameType: 'Voice Chat',
+      language: 'EN',
+      icon: Icons.headphones,
+    );
+    roomModel.createRoom(room);
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => VoiceRoomScreen(roomId: room.id, isHost: true),
+      ),
+    );
+  }
+
+  void _joinRoom(Room room) {
+    if (room.isFull) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => VoiceRoomScreen(roomId: room.id, isHost: false),
+      ),
+    );
+  }
+
+  void _showCreateRoomDialog() {
+    final nameController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF16213E),
+        title: const Text('Create Room', style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: nameController,
+          autofocus: true,
+          style: const TextStyle(color: Colors.white),
+          decoration: InputDecoration(
+            hintText: 'Room name',
+            hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
+            filled: true,
+            fillColor: Colors.white.withOpacity(0.1),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final name = nameController.text.trim();
+              if (name.isNotEmpty) {
+                Navigator.pop(ctx);
+                _createAndEnterRoom(name);
+              }
+            },
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -91,7 +169,10 @@ class _RoomsScreenState extends State<RoomsScreen> {
                 itemCount: rooms.length,
                 itemBuilder: (context, index) {
                   final room = rooms[index];
-                  return _RoomListItem(room: room);
+                  return _RoomListItem(
+                    room: room,
+                    onTap: () => _joinRoom(room),
+                  );
                 },
               ),
             ),
@@ -100,51 +181,8 @@ class _RoomsScreenState extends State<RoomsScreen> {
       ),
       floatingActionButton: FloatingActionButton(
         backgroundColor: Colors.deepPurple,
-        onPressed: () {
-          _showCreateRoomDialog(context);
-        },
+        onPressed: _showCreateRoomDialog,
         child: const Icon(Icons.add, color: Colors.white),
-      ),
-    );
-  }
-
-  void _showCreateRoomDialog(BuildContext context) {
-    final nameController = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF16213E),
-        title: const Text('Create Room', style: TextStyle(color: Colors.white)),
-        content: TextField(
-          controller: nameController,
-          style: const TextStyle(color: Colors.white),
-          decoration: InputDecoration(
-            hintText: 'Room name',
-            hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
-            filled: true,
-            fillColor: Colors.white.withOpacity(0.1),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none,
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              // Create room logic here
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Room created!')),
-              );
-            },
-            child: const Text('Create'),
-          ),
-        ],
       ),
     );
   }
@@ -152,8 +190,9 @@ class _RoomsScreenState extends State<RoomsScreen> {
 
 class _RoomListItem extends StatelessWidget {
   final Room room;
+  final VoidCallback onTap;
 
-  const _RoomListItem({required this.room});
+  const _RoomListItem({required this.room, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -210,11 +249,7 @@ class _RoomListItem extends StatelessWidget {
               ),
           ],
         ),
-        onTap: () {
-          if (!room.isFull) {
-            Navigator.pushNamed(context, '/voice-room');
-          }
-        },
+        onTap: room.isFull ? null : onTap,
       ),
     );
   }
