@@ -6,6 +6,7 @@ import '../models/room_model.dart';
 import '../services/trtc_service.dart';
 import '../config/trtc_config.dart';
 import '../widgets/speaking_avatar.dart';
+import '../widgets/user_avatar.dart';
 
 // WePlay-inspired voice room screen
 class VoiceRoomScreen extends StatefulWidget {
@@ -217,15 +218,10 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
           ),
           const SizedBox(width: 12),
           // Host avatar
-          Container(
-            width: 38, height: 38,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: const LinearGradient(
-                colors: [_gold, Color(0xFFE89500)],
-              ),
-            ),
-            child: const Icon(Icons.person, color: Colors.white, size: 20),
+          UserAvatar(
+            userId: host?.userId ?? '',
+            displayName: host?.label ?? 'H',
+            size: 38,
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -304,9 +300,13 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
                       SpeakingAvatar(
                         isSpeaking: owner.isSpeaking,
                         volume: owner.volume,
-                        size: 36,
+                        size: 44,
                         glowColor: _gold,
-                        child: const Icon(Icons.star, color: Colors.white, size: 28),
+                        child: UserAvatar(
+                          userId: owner.userId,
+                          displayName: owner.label,
+                          size: 44,
+                        ),
                       ),
                       const SizedBox(height: 2),
                       Text(
@@ -522,15 +522,10 @@ class _SeatCircle extends StatelessWidget {
                     child: Stack(
                       alignment: Alignment.center,
                       children: [
-                        Container(
-                          width: 36, height: 36,
-                          decoration: BoxDecoration(
-                            shape: BoxShape.circle,
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFFFE6484), Color(0xFFC84070)],
-                            ),
-                          ),
-                          child: const Icon(Icons.person, color: Colors.white, size: 20),
+                        UserAvatar(
+                          userId: p?.userId ?? '',
+                          displayName: p?.label ?? '?',
+                          size: 36,
                         ),
                         if (p?.isHost == true)
                           Positioned(
@@ -578,10 +573,10 @@ class _AudienceRow extends StatelessWidget {
       ),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 16,
-            backgroundColor: Colors.white.withOpacity(0.1),
-            child: const Icon(Icons.person, size: 16, color: Colors.white54),
+          UserAvatar(
+            userId: participant.userId,
+            displayName: participant.label,
+            size: 32,
           ),
           const SizedBox(width: 10),
           Text(participant.label,
