@@ -5,6 +5,7 @@ import '../models/user_model.dart';
 import '../models/room_model.dart';
 import '../services/trtc_service.dart';
 import '../config/trtc_config.dart';
+import '../widgets/speaking_avatar.dart';
 
 // WePlay-inspired voice room screen
 class VoiceRoomScreen extends StatefulWidget {
@@ -256,7 +257,13 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
                 ? Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.star, color: Colors.white, size: 28),
+                      SpeakingAvatar(
+                        isSpeaking: owner.isSpeaking,
+                        volume: owner.volume,
+                        size: 36,
+                        glowColor: _gold,
+                        child: const Icon(Icons.star, color: Colors.white, size: 28),
+                      ),
                       const SizedBox(height: 2),
                       Text(
                         owner.userId.length > 8 ? '${owner.userId.substring(0, 6)}..' : owner.userId,
@@ -439,6 +446,10 @@ class _SeatCircle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = participant;
+    final speaking = p?.isSpeaking ?? false;
+    final volume = p?.volume ?? 0;
+
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
@@ -450,60 +461,52 @@ class _SeatCircle extends StatelessWidget {
           color: occupied ? const Color(0xFF2A2A4A) : Colors.white.withOpacity(0.06),
           border: Border.all(
             color: occupied
-                ? (participant?.isSpeaking == true ? Colors.greenAccent : const Color(0xFF00CCF9))
+                ? const Color(0xFF00CCF9)
                 : Colors.white.withOpacity(0.15),
             width: occupied ? 2.5 : 1.5,
           ),
-          boxShadow: participant?.isSpeaking == true
-              ? [BoxShadow(color: Colors.greenAccent.withOpacity(0.4), blurRadius: 12, spreadRadius: 1)]
-              : null,
         ),
         child: occupied
             ? Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Container(
-                        width: 36, height: 36,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFFFE6484), Color(0xFFC84070)],
-                          ),
-                        ),
-                        child: const Icon(Icons.person, color: Colors.white, size: 20),
-                      ),
-                      if (participant?.isHost == true)
-                        Positioned(
-                          right: 0, bottom: 0,
-                          child: Container(
-                            width: 14, height: 14,
-                            decoration: const BoxDecoration(
-                              color: Color(0xFFF6AD1B), shape: BoxShape.circle,
+                  SpeakingAvatar(
+                    isSpeaking: speaking,
+                    volume: volume,
+                    size: 36,
+                    glowColor: const Color(0xFF00CCF9),
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Container(
+                          width: 36, height: 36,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: const LinearGradient(
+                              colors: [Color(0xFFFE6484), Color(0xFFC84070)],
                             ),
-                            child: const Icon(Icons.star, size: 8, color: Colors.white),
                           ),
+                          child: const Icon(Icons.person, color: Colors.white, size: 20),
                         ),
-                      if (participant?.isSpeaking == true)
-                        Positioned(
-                          left: 0, bottom: 0,
-                          child: Container(
-                            width: 14, height: 14,
-                            decoration: const BoxDecoration(
-                              color: Colors.greenAccent, shape: BoxShape.circle,
+                        if (p?.isHost == true)
+                          Positioned(
+                            right: 0, bottom: 0,
+                            child: Container(
+                              width: 14, height: 14,
+                              decoration: const BoxDecoration(
+                                color: Color(0xFFF6AD1B), shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.star, size: 8, color: Colors.white),
                             ),
-                            child: const Icon(Icons.mic, size: 8, color: Colors.white),
                           ),
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    (participant?.userId.length ?? 0) > 8
-                        ? '${participant!.userId.substring(0, 6)}..'
-                        : (participant?.userId ?? ''),
+                    (p?.userId.length ?? 0) > 8
+                        ? '${p!.userId.substring(0, 6)}..'
+                        : (p?.userId ?? ''),
                     style: const TextStyle(color: Colors.white70, fontSize: 9),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
