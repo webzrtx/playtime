@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:uuid/uuid.dart';
 import '../models/user_model.dart';
 import '../models/room_model.dart';
 import '../models/game_model.dart';
+import 'voice_room_screen.dart';
 
 /// Main home screen with bottom navigation
 class HomeScreen extends StatefulWidget {
@@ -212,6 +214,75 @@ class _HomeTab extends StatelessWidget {
 class _RoomsTab extends StatelessWidget {
   const _RoomsTab();
 
+  void _createAndEnterRoom(BuildContext context, String name) {
+    final roomModel = Provider.of<RoomModel>(context, listen: false);
+    final room = roomModel.createRoom(
+      id: const Uuid().v4().substring(0, 8),
+      name: name,
+      hostId: 'self',
+      hostName: 'You',
+    );
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => VoiceRoomScreen(roomId: room.id, isHost: true),
+      ),
+    );
+  }
+
+  void _joinRoom(BuildContext context, Room room) {
+    if (room.isFull) return;
+    Provider.of<RoomModel>(context, listen: false).joinRoom(room.id);
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => VoiceRoomScreen(roomId: room.id, isHost: false),
+      ),
+    );
+  }
+
+  void _showCreateDialog(BuildContext context) {
+    final ctrl = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF16213E),
+        title: const Text('Create Room', style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          style: const TextStyle(color: Colors.white),
+          decoration: InputDecoration(
+            hintText: 'Room name',
+            hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
+            filled: true,
+            fillColor: Colors.white.withOpacity(0.1),
+            border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final name = ctrl.text.trim();
+              if (name.isNotEmpty) {
+                Navigator.pop(ctx);
+                _createAndEnterRoom(context, name);
+              }
+            },
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final rooms = Provider.of<RoomModel>(context).rooms;
@@ -235,7 +306,7 @@ class _RoomsTab extends StatelessWidget {
                 const Spacer(),
                 IconButton(
                   icon: const Icon(Icons.add, color: Colors.deepPurple),
-                  onPressed: () {},
+                  onPressed: () => _showCreateDialog(context),
                 ),
               ],
             ),
@@ -244,10 +315,18 @@ class _RoomsTab extends StatelessWidget {
           // Room list
           Expanded(
             child: rooms.isEmpty
-                ? const Center(
-                    child: Text(
-                      'No rooms available',
-                      style: TextStyle(color: Colors.white54),
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.mic_none, size: 48, color: Colors.white.withOpacity(0.3)),
+                        const SizedBox(height: 12),
+                        const Text('No rooms yet',
+                            style: TextStyle(color: Colors.white54, fontSize: 16)),
+                        const SizedBox(height: 4),
+                        Text('Tap + to create one',
+                            style: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 13)),
+                      ],
                     ),
                   )
                 : ListView.builder(
@@ -255,7 +334,10 @@ class _RoomsTab extends StatelessWidget {
                     itemCount: rooms.length,
                     itemBuilder: (context, index) {
                       final room = rooms[index];
-                      return _RoomCard(room: room);
+                      return _RoomCard(
+                        room: room,
+                        onTap: () => _joinRoom(context, room),
+                      );
                     },
                   ),
           ),
@@ -496,12 +578,15 @@ class _StatCard extends StatelessWidget {
 
 class _RoomCard extends StatelessWidget {
   final Room room;
+  final VoidCallback? onTap;
 
-  const _RoomCard({required this.room});
+  const _RoomCard({required this.room, this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return GestureDetector(
+      onTap: room.isFull ? null : onTap,
+      child: Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -564,6 +649,7 @@ class _RoomCard extends StatelessWidget {
             ],
           ),
         ],
+      ),
       ),
     );
   }
