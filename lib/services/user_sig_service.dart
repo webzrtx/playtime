@@ -1,6 +1,6 @@
-// Tencent TRTC UserSig generator (TLSSigAPIv2).
+// Tencent TRTC UserSig generator — OFFICIAL algorithm.
 //
-// Implements HMAC-SHA256 signing per:
+// Based on the official GenerateTestUserSig from tencent_rtc_sdk example:
 // https://trtc.io/document/35166
 //
 // ⚠️ UserSig MUST be generated server-side in production.
@@ -11,40 +11,42 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 
 class UserSigService {
-  /// Generate a UserSig for the given userId.
-  ///
-  /// [sdkAppId] — TRTC application ID
-  /// [secretKey] — application secret key
-  /// [userId] — the user's unique identifier
-  /// [expireSeconds] — how long the signature is valid
   static String generate({
     required int sdkAppId,
     required String secretKey,
     required String userId,
     required int expireSeconds,
   }) {
-    final now = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    final currTime = (DateTime.now().millisecondsSinceEpoch / 1000).floor();
 
-    final payload = <String, dynamic>{
+    // 1. Compute HMAC-SHA256 signature from text-formatted content
+    final contentToBeSigned =
+        'TLS.identifier:$userId\n'
+        'TLS.sdkappid:$sdkAppId\n'
+        'TLS.time:$currTime\n'
+        'TLS.expire:$expireSeconds\n';
+
+    final hmac = Hmac(sha256, utf8.encode(secretKey));
+    final sig = base64.encode(hmac.convert(utf8.encode(contentToBeSigned)).bytes);
+
+    // 2. Build JSON with signature embedded
+    final sigDoc = <String, dynamic>{
       'TLS.ver': '2.0',
       'TLS.identifier': userId,
       'TLS.sdkappid': sdkAppId,
       'TLS.expire': expireSeconds,
-      'TLS.time': now,
+      'TLS.time': currTime,
+      'TLS.sig': sig,
     };
 
-    final jsonBytes = utf8.encode(jsonEncode(payload));
+    // 3. Compress JSON → base64 → escape
+    final jsonBytes = utf8.encode(jsonEncode(sigDoc));
     final compressed = zlib.encode(jsonBytes);
-    final encoded = _base64UrlEncode(compressed);
+    final base64Str = base64.encode(compressed);
 
-    final hmacSig = Hmac(sha256, utf8.encode(secretKey))
-        .convert(utf8.encode(encoded));
-    final sig = _base64UrlEncode(hmacSig.bytes);
-
-    return '$encoded.$sig';
-  }
-
-  static String _base64UrlEncode(List<int> bytes) {
-    return base64Url.encode(bytes).replaceAll('=', '');
+    return base64Str
+        .replaceAll('+', '*')
+        .replaceAll('/', '-')
+        .replaceAll('=', '_');
   }
 }
