@@ -41,7 +41,7 @@ class WePlayApp extends StatelessWidget {
             backgroundColor: Color(0xFF1A1A2E),
             elevation: 0,
           ),
-          cardTheme: CardThemeData(
+          cardTheme: CardTheme(
             color: const Color(0xFF16213E),
             elevation: 4,
             shape: RoundedRectangleBorder(
