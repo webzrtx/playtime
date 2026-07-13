@@ -10,9 +10,8 @@ import '../widgets/speaking_avatar.dart';
 import '../widgets/user_avatar.dart';
 import '../widgets/gift_panel.dart';
 import '../widgets/gift_overlay.dart';
-import '../models/gift_model.dart';
+import '../widgets/chat_panel.dart';
 
-// WePlay-inspired voice room screen
 class VoiceRoomScreen extends StatefulWidget {
   final String? roomId;
   final bool isHost;
@@ -25,11 +24,23 @@ class VoiceRoomScreen extends StatefulWidget {
 
 class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
   final TRTCService _trtc = TRTCService();
+  final TextEditingController _chatCtrl = TextEditingController();
+  final ScrollController _chatScroll = ScrollController();
   bool _isJoined = false;
-  bool _isHandRaised = false;
   String _lastUserId = '';
 
+  final List<ChatMessage> _chatMessages = [];
+  String _currentUserId = '';
+  String _currentDisplayName = '';
+
   static const int _totalSeats = 8;
+
+  // ── Palette ──
+  static const _accent = Color(0xFF00CCF9);
+  static const _pink = Color(0xFFFE6484);
+  static const _gold = Color(0xFFF6AD1B);
+  static const _bgDark = Color(0xFF1A1A2E);
+  static const _bgCard = Color(0xFF16213E);
 
   String get _roomId => widget.roomId ?? TRTCConfig.defaultRoomId.toString();
 
@@ -62,6 +73,8 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
       final userId = _getUserId();
       final displayName = _getDisplayName();
       _lastUserId = userId;
+      _currentUserId = userId;
+      _currentDisplayName = displayName;
       await _trtc.initialize();
       if (widget.isHost) {
         await _trtc.createRoom(roomId: _roomId, userId: userId, displayName: displayName);
@@ -81,25 +94,40 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
     if (mounted) setState(() {});
   }
 
+  void _sendChatMessage(String text) {
+    setState(() {
+      _chatMessages.add(ChatMessage(
+        senderId: _currentUserId,
+        senderName: _currentDisplayName,
+        text: text,
+        isSelf: true,
+      ));
+    });
+    // Auto-scroll
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_chatScroll.hasClients) {
+        _chatScroll.animateTo(
+          _chatScroll.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+      }
+    });
+  }
+
   void _showGiftPanel() {
     GiftPanel.show(context, onSend: (gift) {
       final user = Provider.of<UserModel>(context, listen: false);
       GiftOverlay.show(context,
-          gift: gift,
-          sender: user.username.isNotEmpty ? user.username : 'You');
+          gift: gift, sender: user.username.isNotEmpty ? user.username : 'You');
     });
   }
 
-  /// Enter PiP — audio continues in background, room stays alive.
   Future<void> _enterPip() async {
     final entered = await PipService.enterPip();
-    if (!entered && mounted) {
-      // PiP not supported → just go back but keep room alive
-      Navigator.pop(context);
-    }
+    if (!entered && mounted) Navigator.pop(context);
   }
 
-  /// Leave room completely — disconnect and destroy.
   Future<void> _leaveRoom() async {
     final roomModel = Provider.of<RoomModel>(context, listen: false);
     if (widget.isHost) {
@@ -111,20 +139,31 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
     if (mounted) Navigator.pop(context);
   }
 
+  void _onSeatTap(int? seatNum) {
+    if (_trtc.hasSeat) return;
+    if (seatNum == null && !widget.isHost) return;
+    _trtc.requestSeat();
+  }
+
+  void _submitChat() {
+    final text = _chatCtrl.text.trim();
+    if (text.isEmpty) return;
+    _sendChatMessage(text);
+    _chatCtrl.clear();
+  }
+
   @override
   void dispose() {
     _trtc.removeListener(_onUpdate);
     _trtc.dispose();
+    _chatCtrl.dispose();
+    _chatScroll.dispose();
     super.dispose();
   }
 
-  // -- Color constants (WePlay palette) --
-  static const _accent = Color(0xFF00CCF9);
-  static const _pink = Color(0xFFFE6484);
-  static const _gold = Color(0xFFF6AD1B);
-  static const _bgDark = Color(0xFF1A1A2E);
-  static const _bgCard = Color(0xFF16213E);
-  static const _white70 = Color(0xB3FFFFFF);
+  // ═══════════════════════════════════════════════════════════════════
+  // BUILD
+  // ═══════════════════════════════════════════════════════════════════
 
   @override
   Widget build(BuildContext context) {
@@ -133,17 +172,15 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
     final allParticipants = _trtc.participants;
     final totalCount = allParticipants.length;
 
-    // Build seat map: anchors who are not the host occupy seat positions
     final seatMap = <int, Participant?>{};
     int seatIdx = 0;
     for (final a in anchors) {
-      if (a.isHost) continue; // host stays in owner seat, not in grid
+      if (a.isHost) continue;
       if (seatIdx < _totalSeats) {
         seatMap[seatIdx] = a;
         seatIdx++;
       }
     }
-    // Fill remaining seats as empty
     for (int i = seatIdx; i < _totalSeats; i++) {
       seatMap[i] = null;
     }
@@ -153,10 +190,10 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            // -- Top bar --
+            // ── Top bar ──
             _buildTopBar(totalCount, anchors.isNotEmpty ? anchors.first : null),
 
-            // -- Error banner --
+            // Error
             if (_trtc.lastError != null)
               Container(
                 margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -169,37 +206,28 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
                     style: const TextStyle(color: Colors.redAccent, fontSize: 12)),
               ),
 
-            // -- Loading --
+            // Loading
             if (!_isJoined)
               const Expanded(
-                child: Center(
-                  child: CircularProgressIndicator(color: _accent),
-                ),
+                child: Center(child: CircularProgressIndicator(color: _accent)),
               ),
 
-            // -- Main content --
+            // ── Main content ──
             if (_isJoined) ...[
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   child: Column(
                     children: [
-                      // Owner seat row
                       _buildOwnerSeat(anchors.isNotEmpty ? anchors.first : null),
                       const SizedBox(height: 24),
-
-                      // Seat grid: 2 rows × 4 seats
                       _buildSeatGrid(seatMap),
                       const SizedBox(height: 24),
-
-                      // Audience section
                       if (audience.isNotEmpty) ...[
                         _buildSectionHeader('Listeners', audience.length),
                         const SizedBox(height: 8),
                         ...audience.map((p) => _AudienceRow(participant: p)),
                       ],
-
-                      // Empty state
                       if (allParticipants.length <= 1)
                         Padding(
                           padding: const EdgeInsets.all(32),
@@ -212,27 +240,74 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
                             ],
                           ),
                         ),
-
-                      const SizedBox(height: 80), // space for bottom bar
                     ],
                   ),
                 ),
               ),
-            ],
 
-            // -- Bottom controls --
-            if (_isJoined) _buildBottomBar(),
+              // ── Chat messages (always visible) ──
+              if (_chatMessages.isNotEmpty)
+                Container(
+                  height: 120,
+                  decoration: BoxDecoration(
+                    color: _bgDark,
+                    border: Border(top: BorderSide(color: Colors.white.withOpacity(0.04))),
+                  ),
+                  child: ListView.builder(
+                    controller: _chatScroll,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    itemCount: _chatMessages.length,
+                    itemBuilder: (_, i) {
+                      final m = _chatMessages[i];
+                      final isSelf = m.isSelf;
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 4),
+                        child: Row(
+                          mainAxisAlignment: isSelf ? MainAxisAlignment.end : MainAxisAlignment.start,
+                          children: [
+                            if (!isSelf) ...[
+                              UserAvatar(userId: m.senderId, displayName: m.senderName, size: 20),
+                              const SizedBox(width: 6),
+                            ],
+                            Flexible(
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                decoration: BoxDecoration(
+                                  color: isSelf ? _accent.withOpacity(0.15) : Colors.white.withOpacity(0.06),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  isSelf ? m.text : '${m.senderName}: ${m.text}',
+                                  style: TextStyle(
+                                    color: isSelf ? _accent : Colors.white.withOpacity(0.8),
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+
+              // ── Bottom bar ──
+              _buildBottomBar(),
+            ],
           ],
         ),
       ),
     );
   }
 
-  // ── Top Bar ────────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════
+  // TOP BAR
+  // ═══════════════════════════════════════════════════════════════════
 
   Widget _buildTopBar(int totalCount, Participant? host) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       child: Row(
         children: [
           GestureDetector(
@@ -240,12 +315,7 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
             child: const Icon(Icons.arrow_back_ios, color: Colors.white, size: 20),
           ),
           const SizedBox(width: 12),
-          // Host avatar
-          UserAvatar(
-            userId: host?.userId ?? '',
-            displayName: host?.label ?? 'H',
-            size: 38,
-          ),
+          UserAvatar(userId: host?.userId ?? '', displayName: host?.label ?? 'H', size: 38),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -254,12 +324,9 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
                 Row(
                   children: [
                     Flexible(
-                      child: Text(
-                        host?.label ?? 'Host',
-                        style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                      child: Text(host?.label ?? 'Host',
+                          style: const TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
                     ),
                     const SizedBox(width: 6),
                     Container(
@@ -286,13 +353,25 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
               ],
             ),
           ),
-          _TopAction(icon: Icons.more_horiz, onTap: () {}),
+          GestureDetector(
+            onTap: _leaveRoom,
+            child: Container(
+              width: 36, height: 36,
+              decoration: BoxDecoration(
+                color: _pink.withOpacity(0.25),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.call_end, color: _pink, size: 18),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  // ── Owner Seat ─────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════
+  // OWNER SEAT
+  // ═══════════════════════════════════════════════════════════════════
 
   Widget _buildOwnerSeat(Participant? owner) {
     final hasOwner = owner != null;
@@ -303,13 +382,10 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
         GestureDetector(
           onTap: hasOwner ? null : () => _onSeatTap(null),
           child: Container(
-            width: 80,
-            height: 80,
+            width: 80, height: 80,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              gradient: hasOwner
-                  ? const LinearGradient(colors: [_gold, Color(0xFFE89500)])
-                  : null,
+              gradient: hasOwner ? const LinearGradient(colors: [_gold, Color(0xFFE89500)]) : null,
               color: hasOwner ? null : Colors.white.withOpacity(0.08),
               border: Border.all(
                 color: hasOwner ? _gold : Colors.white.withOpacity(0.2),
@@ -321,23 +397,12 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       SpeakingAvatar(
-                        isSpeaking: owner.isSpeaking,
-                        volume: owner.volume,
-                        size: 44,
-                        glowColor: _gold,
-                        child: UserAvatar(
-                          userId: owner.userId,
-                          displayName: owner.label,
-                          size: 44,
-                        ),
+                        isSpeaking: owner.isSpeaking, volume: owner.volume, size: 44, glowColor: _gold,
+                        child: UserAvatar(userId: owner.userId, displayName: owner.label, size: 44),
                       ),
                       const SizedBox(height: 2),
-                      Text(
-                        owner.label,
-                        style: const TextStyle(color: Colors.white, fontSize: 10),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                      Text(owner.label, style: const TextStyle(color: Colors.white, fontSize: 10),
+                          maxLines: 1, overflow: TextOverflow.ellipsis),
                     ],
                   )
                 : Column(
@@ -354,17 +419,17 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
     );
   }
 
-  // ── Seat Grid ──────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════
+  // SEAT GRID
+  // ═══════════════════════════════════════════════════════════════════
 
   Widget _buildSeatGrid(Map<int, Participant?> seatMap) {
     return Column(
       children: [
         _buildSectionHeader('Mic Seats', _totalSeats),
         const SizedBox(height: 12),
-        // Row 1: seats 0-3
         _buildSeatRow(0, 4, seatMap),
         const SizedBox(height: 16),
-        // Row 2: seats 4-7
         _buildSeatRow(4, 4, seatMap),
       ],
     );
@@ -375,58 +440,45 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
       children: List.generate(count, (i) {
         final seatNum = start + i;
-        final occupant = seatMap[seatNum];
         return _SeatCircle(
-          seatNum: seatNum + 1, // display 1-8
-          occupied: occupant != null,
-          participant: occupant,
+          seatNum: seatNum + 1,
+          occupied: seatMap[seatNum] != null,
+          participant: seatMap[seatNum],
           onTap: () => _onSeatTap(seatNum),
         );
       }),
     );
   }
 
-  void _onSeatTap(int? seatNum) {
-    if (_trtc.hasSeat) return; // already on a seat
-    if (seatNum == null && !widget.isHost) return; // only host can take owner seat
-    _trtc.requestSeat();
-  }
-
-  // ── Section Header ─────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════
+  // SECTION HEADER
+  // ═══════════════════════════════════════════════════════════════════
 
   Widget _buildSectionHeader(String title, int count) {
     return Row(
       children: [
-        Container(
-          width: 3, height: 14,
-          decoration: BoxDecoration(
-            color: _accent,
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
+        Container(width: 3, height: 14,
+            decoration: BoxDecoration(color: _accent, borderRadius: BorderRadius.circular(2))),
         const SizedBox(width: 8),
-        Text(title,
-            style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
+        Text(title, style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
         const Spacer(),
-        Text('$count',
-            style: TextStyle(color: _white70, fontSize: 12)),
+        Text('$count', style: const TextStyle(color: Color(0xB3FFFFFF), fontSize: 12)),
       ],
     );
   }
 
-  // ── Bottom Bar ─────────────────────────────────────────────────────
+  // ═══════════════════════════════════════════════════════════════════
+  // BOTTOM BAR (WePlay-style: Audio | Mute | Chat | Gift)
+  // ═══════════════════════════════════════════════════════════════════
 
   Widget _buildBottomBar() {
     final isAudience = !_trtc.hasSeat;
 
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      padding: const EdgeInsets.fromLTRB(12, 8, 8, 10),
       decoration: BoxDecoration(
         color: _bgCard,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, -2)),
-        ],
+        border: Border(top: BorderSide(color: Colors.white.withOpacity(0.06))),
       ),
       child: isAudience
           ? SizedBox(
@@ -435,60 +487,71 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
                 onPressed: () => _trtc.requestSeat(),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: _accent,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                 ),
-                icon: const Icon(Icons.mic, color: Colors.white),
+                icon: const Icon(Icons.mic, color: Colors.white, size: 18),
                 label: const Text('Take a Seat',
-                    style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600)),
+                    style: TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600)),
               ),
             )
           : Row(
-              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: [
-                _BottomBtn(
-                  icon: _trtc.isMuted ? Icons.mic_off : Icons.mic,
-                  label: 'Mic',
-                  active: _trtc.isMuted,
-                  activeColor: Colors.red,
-                  onTap: () => _trtc.toggleMute(),
-                ),
-                _BottomBtn(
-                  icon: Icons.volume_up,
-                  label: 'Speaker',
+                // 1. Audio (hear others)
+                _BarBtn(
+                  icon: _trtc.isSpeakerOn ? Icons.volume_up : Icons.volume_off,
                   active: _trtc.isSpeakerOn,
                   activeColor: _accent,
                   onTap: () => _trtc.toggleSpeaker(),
                 ),
-                _BottomBtn(
-                  icon: Icons.card_giftcard,
-                  label: 'Gift',
-                  active: false,
-                  activeColor: _pink,
-                  onTap: () => _showGiftPanel(),
+                const SizedBox(width: 8),
+
+                // 2. Mute / Speak (own mic)
+                _BarBtn(
+                  icon: _trtc.isMuted ? Icons.mic_off : Icons.mic,
+                  active: !_trtc.isMuted,
+                  activeColor: _accent,
+                  onTap: () => _trtc.toggleMute(),
                 ),
-                _BottomBtn(
-                  icon: _isHandRaised ? Icons.pan_tool : Icons.front_hand,
-                  label: 'Hand',
-                  active: _isHandRaised,
-                  activeColor: Colors.orange,
-                  onTap: () => setState(() => _isHandRaised = !_isHandRaised),
-                ),
-                if (!_trtc.isHost)
-                  _BottomBtn(
-                    icon: Icons.event_seat,
-                    label: 'Seat',
-                    active: false,
-                    activeColor: _accent,
-                    onTap: () => _trtc.leaveSeat(),
+                const SizedBox(width: 8),
+
+                // 3. Chat input (always visible)
+                Expanded(
+                  child: Container(
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.06),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: TextField(
+                      controller: _chatCtrl,
+                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                      decoration: InputDecoration(
+                        hintText: 'Send a message...',
+                        hintStyle: TextStyle(color: Colors.white.withOpacity(0.3), fontSize: 13),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                        border: InputBorder.none,
+                        suffixIcon: _chatCtrl.text.isNotEmpty
+                            ? GestureDetector(
+                                onTap: _submitChat,
+                                child: const Icon(Icons.send_rounded, color: _accent, size: 20),
+                              )
+                            : null,
+                      ),
+                      textInputAction: TextInputAction.send,
+                      onChanged: (_) => setState(() {}),
+                      onSubmitted: (_) => _submitChat(),
+                    ),
                   ),
-                _BottomBtn(
-                  icon: Icons.call_end,
-                  label: 'Leave',
+                ),
+                const SizedBox(width: 8),
+
+                // 4. Gift
+                _BarBtn(
+                  icon: Icons.card_giftcard,
                   active: false,
                   activeColor: _pink,
-                  isEnd: true,
-                  onTap: _leaveRoom,
+                  onTap: _showGiftPanel,
                 ),
               ],
             ),
@@ -496,7 +559,9 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
   }
 }
 
-// ── Seat Circle Widget ──────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════
+// WIDGETS
+// ═══════════════════════════════════════════════════════════════════════
 
 class _SeatCircle extends StatelessWidget {
   final int seatNum;
@@ -504,32 +569,21 @@ class _SeatCircle extends StatelessWidget {
   final Participant? participant;
   final VoidCallback onTap;
 
-  const _SeatCircle({
-    required this.seatNum,
-    required this.occupied,
-    this.participant,
-    required this.onTap,
-  });
+  const _SeatCircle({required this.seatNum, required this.occupied, this.participant, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     final p = participant;
-    final speaking = p?.isSpeaking ?? false;
-    final volume = p?.volume ?? 0;
-
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 300),
-        width: 64,
-        height: 64,
+        width: 64, height: 64,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           color: occupied ? const Color(0xFF2A2A4A) : Colors.white.withOpacity(0.06),
           border: Border.all(
-            color: occupied
-                ? const Color(0xFF00CCF9)
-                : Colors.white.withOpacity(0.15),
+            color: occupied ? const Color(0xFF00CCF9) : Colors.white.withOpacity(0.15),
             width: occupied ? 2.5 : 1.5,
           ),
         ),
@@ -538,26 +592,20 @@ class _SeatCircle extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   SpeakingAvatar(
-                    isSpeaking: speaking,
-                    volume: volume,
+                    isSpeaking: p?.isSpeaking ?? false,
+                    volume: p?.volume ?? 0,
                     size: 36,
                     glowColor: const Color(0xFF00CCF9),
                     child: Stack(
                       alignment: Alignment.center,
                       children: [
-                        UserAvatar(
-                          userId: p?.userId ?? '',
-                          displayName: p?.label ?? '?',
-                          size: 36,
-                        ),
+                        UserAvatar(userId: p?.userId ?? '', displayName: p?.label ?? '?', size: 36),
                         if (p?.isHost == true)
                           Positioned(
                             right: 0, bottom: 0,
                             child: Container(
                               width: 14, height: 14,
-                              decoration: const BoxDecoration(
-                                color: Color(0xFFF6AD1B), shape: BoxShape.circle,
-                              ),
+                              decoration: const BoxDecoration(color: Color(0xFFF6AD1B), shape: BoxShape.circle),
                               child: const Icon(Icons.star, size: 8, color: Colors.white),
                             ),
                           ),
@@ -565,12 +613,8 @@ class _SeatCircle extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    p?.label ?? '',
-                    style: const TextStyle(color: Colors.white70, fontSize: 9),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  Text(p?.label ?? '', style: const TextStyle(color: Colors.white70, fontSize: 9),
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
                 ],
               )
             : Icon(Icons.mic_none, color: Colors.white.withOpacity(0.2), size: 24),
@@ -578,8 +622,6 @@ class _SeatCircle extends StatelessWidget {
     );
   }
 }
-
-// ── Audience Row Widget ─────────────────────────────────────────────
 
 class _AudienceRow extends StatelessWidget {
   final Participant participant;
@@ -596,14 +638,9 @@ class _AudienceRow extends StatelessWidget {
       ),
       child: Row(
         children: [
-          UserAvatar(
-            userId: participant.userId,
-            displayName: participant.label,
-            size: 32,
-          ),
+          UserAvatar(userId: participant.userId, displayName: participant.label, size: 32),
           const SizedBox(width: 10),
-          Text(participant.label,
-              style: const TextStyle(color: Colors.white70, fontSize: 13)),
+          Text(participant.label, style: const TextStyle(color: Colors.white70, fontSize: 13)),
           const Spacer(),
           Icon(Icons.headset_mic, size: 16, color: Colors.white.withOpacity(0.3)),
         ],
@@ -612,71 +649,24 @@ class _AudienceRow extends StatelessWidget {
   }
 }
 
-// ── Bottom Button Widget ────────────────────────────────────────────
-
-class _BottomBtn extends StatelessWidget {
+class _BarBtn extends StatelessWidget {
   final IconData icon;
-  final String label;
   final bool active;
   final Color activeColor;
-  final bool isEnd;
   final VoidCallback onTap;
 
-  const _BottomBtn({
-    required this.icon,
-    required this.label,
-    required this.active,
-    required this.activeColor,
-    this.isEnd = false,
-    required this.onTap,
-  });
+  const _BarBtn({required this.icon, required this.active, required this.activeColor, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
-    final bgColor = isEnd
-        ? const Color(0xFFFE6484)
-        : (active ? activeColor.withOpacity(0.2) : Colors.white.withOpacity(0.08));
-    final fgColor = isEnd ? Colors.white : (active ? activeColor : Colors.white54);
-
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 46, height: 46,
-            decoration: BoxDecoration(
-              color: bgColor,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, color: fgColor, size: 22),
-          ),
-          const SizedBox(height: 4),
-          Text(label, style: TextStyle(color: fgColor, fontSize: 10)),
-        ],
-      ),
-    );
-  }
-}
-
-// ── Top Action Button ───────────────────────────────────────────────
-
-class _TopAction extends StatelessWidget {
-  final IconData icon;
-  final VoidCallback onTap;
-  const _TopAction({required this.icon, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
+    final bg = active ? activeColor.withOpacity(0.2) : Colors.white.withOpacity(0.06);
+    final fg = active ? activeColor : Colors.white54;
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: 36, height: 36,
-        decoration: BoxDecoration(
-          color: Colors.white.withOpacity(0.08),
-          shape: BoxShape.circle,
-        ),
-        child: Icon(icon, color: Colors.white70, size: 20),
+        width: 40, height: 40,
+        decoration: BoxDecoration(color: bg, shape: BoxShape.circle),
+        child: Icon(icon, color: fg, size: 20),
       ),
     );
   }
