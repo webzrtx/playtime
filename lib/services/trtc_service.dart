@@ -1,46 +1,35 @@
-import 'package:flutter/foundation.dart';
+// Mock TRTC service for testing without Tencent SDK
+// Replace with real implementation when Tencent credentials are available
 
-/// Mock TRTC Service - no native libs, works on all devices
 class TRTCService {
-  static final TRTCService _instance = TRTCService._internal();
-  factory TRTCService() => _instance;
-  TRTCService._internal();
-
-  bool _isInitialized = false;
-  String? _currentRoomId;
-  bool _isMuted = false;
-
+  bool isMuted = false;
+  bool isSpeakerOn = true;
+  
   Future<void> initialize({required int sdkAppId, required String secretKey}) async {
-    _isInitialized = true;
-    debugPrint('TRTC Service (mock) initialized');
+    // Mock initialization - no-op for now
+    await Future.delayed(const Duration(milliseconds: 100));
   }
-
+  
   Future<void> createRoom({required String roomId, required String userId}) async {
-    _currentRoomId = roomId;
-    debugPrint('Created mock room: $roomId');
+    // Mock room creation - no-op for now
+    await Future.delayed(const Duration(milliseconds: 100));
   }
-
+  
   Future<void> joinRoom({required String roomId, required String userId}) async {
-    _currentRoomId = roomId;
-    debugPrint('Joined mock room: $roomId');
+    // Mock room join - no-op for now
+    await Future.delayed(const Duration(milliseconds: 100));
   }
-
+  
   Future<void> leaveRoom() async {
-    _currentRoomId = null;
-    debugPrint('Left room');
+    // Mock leave - no-op for now
+    await Future.delayed(const Duration(milliseconds: 50));
   }
-
+  
   Future<void> toggleMute() async {
-    _isMuted = !_isMuted;
+    isMuted = !isMuted;
   }
-
-  Future<void> toggleSpeaker() async {}
-
-  String? get currentRoomId => _currentRoomId;
-  bool get isMuted => _isMuted;
-  bool get isSpeakerOn => true;
-
-  Future<void> dispose() async {
-    await leaveRoom();
+  
+  Future<void> toggleSpeaker() async {
+    isSpeakerOn = !isSpeakerOn;
   }
 }

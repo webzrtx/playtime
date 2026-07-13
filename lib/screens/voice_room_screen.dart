@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/trtc_service.dart';
 import '../config/trtc_config.dart';
 
-/// Voice room screen with real TRTC voice chat
+/// Voice room screen with voice chat UI (mock for now)
 class VoiceRoomScreen extends StatefulWidget {
   final String? roomId;
   final bool isHost;
@@ -19,9 +19,8 @@ class VoiceRoomScreen extends StatefulWidget {
 
 class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
   final TRTCService _trtc = TRTCService();
-  bool _isInitialized = false;
+  bool _isJoined = false;
   bool _isMuted = false;
-  bool _isSpeakerOn = true;
   bool _isHandRaised = false;
   String _roomId = '';
   String _userId = '';
@@ -35,19 +34,22 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
     _roomId = widget.roomId ?? TRTCConfig.defaultRoomId.toString();
     _userId = 'user_${DateTime.now().millisecondsSinceEpoch}';
     
-    // Add self to participants (mock for now)
+    // Add mock participants
     _participants.add(_Participant(
-      name: _userId,
-      isHost: widget.isHost,
+      name: 'Host',
+      isHost: true,
       isSpeaking: true,
       avatarColor: Colors.deepPurple,
     ));
-    
-    // Mark as initialized (TRTC will be inited when user taps join)
-    setState(() => _isInitialized = true);
+    _participants.add(_Participant(
+      name: 'Player 2',
+      isHost: false,
+      isSpeaking: false,
+      avatarColor: Colors.pink,
+    ));
   }
 
-  Future<void> _initTRTC() async {
+  Future<void> _joinRoom() async {
     try {
       await _trtc.initialize(
         sdkAppId: TRTCConfig.sdkAppId,
@@ -58,10 +60,29 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
         await _trtc.createRoom(roomId: _roomId, userId: _userId);
       } else {
         await _trtc.joinRoom(roomId: _roomId, userId: _userId);
+        // Add self as participant when joining
+        _participants.add(_Participant(
+          name: _userId,
+          isHost: false,
+          isSpeaking: false,
+          avatarColor: Colors.blue,
+        ));
       }
+      
+      setState(() => _isJoined = true);
     } catch (e) {
       debugPrint('TRTC error: $e');
-      setState(() => _error = e.toString());
+      setState(() {
+        _error = e.toString();
+        _isJoined = true; // Show UI anyway for testing UI
+      });
+    }
+  }
+
+  Future<void> _leaveRoom() async {
+    await _trtc.leaveRoom();
+    if (mounted) {
+      Navigator.pop(context);
     }
   }
 
@@ -71,35 +92,22 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
     super.dispose();
   }
 
-  void _toggleMute() async {
-    await _trtc.toggleMute();
-    setState(() => _isMuted = _trtc.isMuted);
-  }
-
-  void _toggleSpeaker() async {
-    await _trtc.toggleSpeaker();
-    setState(() => _isSpeakerOn = _trtc.isSpeakerOn);
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Room $_roomId'),
+        title: Text('Room $_roomId', style: const TextStyle(color: Colors.black)),
         backgroundColor: Colors.white,
+        iconTheme: const IconThemeData(color: Colors.black),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.black),
-          onPressed: () {
-            _trtc.leaveRoom();
-            Navigator.pop(context);
-          },
+          icon: const Icon(Icons.arrow_back),
+          onPressed: _leaveRoom,
         ),
       ),
       body: Container(
         color: Colors.white,
         child: Column(
           children: [
-            // Room info
             Container(
               padding: const EdgeInsets.all(16),
               child: Row(
@@ -131,7 +139,6 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
               ),
             ),
 
-            // Error message
             if (_error != null)
               Container(
                 margin: const EdgeInsets.all(16),
@@ -140,10 +147,9 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
                   color: Colors.red.shade50,
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Text(_error!, style: TextStyle(color: Colors.red.shade700)),
+                child: Text('Voice unavailable: $_error', style: TextStyle(color: Colors.red.shade700)),
               ),
 
-            // Participants grid
             Expanded(
               child: GridView.builder(
                 padding: const EdgeInsets.all(16),
@@ -161,42 +167,48 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
               ),
             ),
 
-            // Controls
             Container(
               padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade100,
-              ),
+              color: Colors.grey.shade100,
               child: SafeArea(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _ControlButton(
-                      icon: _isMuted ? Icons.mic_off : Icons.mic,
-                      label: _isMuted ? 'Unmute' : 'Mute',
-                      color: _isMuted ? Colors.red : Colors.black,
-                      isActive: _isMuted,
-                      onTap: _toggleMute,
+                child: _isJoined
+                  ? Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                      children: [
+                        _ControlButton(
+                          icon: _isMuted ? Icons.mic_off : Icons.mic,
+                          label: _isMuted ? 'Unmute' : 'Mute',
+                          color: _isMuted ? Colors.red : Colors.black,
+                          isActive: _isMuted,
+                          onTap: () async {
+                            await _trtc.toggleMute();
+                            setState(() => _isMuted = _trtc.isMuted);
+                          },
+                        ),
+                        _ControlButton(
+                          icon: Icons.pan_tool,
+                          label: 'Hand',
+                          color: _isHandRaised ? Colors.orange : Colors.black,
+                          isActive: _isHandRaised,
+                          onTap: () => setState(() => _isHandRaised = !_isHandRaised),
+                        ),
+                        _ControlButton(
+                          icon: Icons.call_end,
+                          label: 'Leave',
+                          color: Colors.red,
+                          isActive: false,
+                          onTap: _leaveRoom,
+                        ),
+                      ],
+                    )
+                  : ElevatedButton(
+                      onPressed: _joinRoom,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.deepPurple,
+                        minimumSize: const Size(double.infinity, 48),
+                      ),
+                      child: const Text('Join Voice Room', style: TextStyle(color: Colors.white, fontSize: 16)),
                     ),
-                    _ControlButton(
-                      icon: Icons.pan_tool,
-                      label: 'Hand',
-                      color: _isHandRaised ? Colors.orange : Colors.black,
-                      isActive: _isHandRaised,
-                      onTap: () => setState(() => _isHandRaised = !_isHandRaised),
-                    ),
-                    _ControlButton(
-                      icon: Icons.call_end,
-                      label: 'Leave',
-                      color: Colors.red,
-                      isActive: false,
-                      onTap: () {
-                        _trtc.leaveRoom();
-                        Navigator.pop(context);
-                      },
-                    ),
-                  ],
-                ),
               ),
             ),
           ],
@@ -238,14 +250,10 @@ class _ParticipantCard extends StatelessWidget {
               child: const Icon(Icons.person, color: Colors.white, size: 30),
             ),
             if (participant.isHost)
-              Positioned(
+              const Positioned(
                 right: 0,
                 bottom: 0,
-                child: Container(
-                  padding: const EdgeInsets.all(2),
-                  decoration: const BoxDecoration(color: Colors.amber, shape: BoxShape.circle),
-                  child: const Icon(Icons.star, size: 14, color: Colors.white),
-                ),
+                child: Icon(Icons.star, size: 14, color: Colors.amber),
               ),
           ],
         ),

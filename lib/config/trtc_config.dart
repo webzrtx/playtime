@@ -1,12 +1,9 @@
-/// Tencent TRTC Configuration
+// Tencent TRTC Configuration
+// TODO: Replace with secure backend for UserSig generation
+
 class TRTCConfig {
-  // Your Tencent credentials
-  static const int sdkAppId = 20044652;
-  static const String secretKey = '971dd4f906087a876b1f6e179022a7b4549bb9ccab4bc1b4e31e48aea6bf47c0';
+  static const int sdkAppId = 20044652;  // Your Tencent TRTC SDK App ID
+  static const String secretKey = 'YOUR_SECRET_KEY';  // Replace with your secret key (use env var in production)
   
-  // Default room settings
-  static const int defaultRoomId = 123456;
-  
-  // Private room password (if needed)
-  static const String roomPassword = '';
+  static const int defaultRoomId = 12345;
 }
