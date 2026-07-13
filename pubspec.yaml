@@ -34,9 +34,9 @@ dependencies:
   # State management
   provider: ^6.1.2
 
-  # Tencent TRTC for real voice chat
-  tencent_rtc_sdk: ^13.4.1
-  crypto: ^3.0.3
+  # Tencent TRTC - commented out due to native lib crash on some devices
+  # tencent_rtc_sdk: ^13.4.1
+  # crypto: ^3.0.3
   
   # UUID for room IDs
   uuid: ^4.3.3
