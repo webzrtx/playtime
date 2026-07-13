@@ -11,6 +11,7 @@ import '../widgets/user_avatar.dart';
 import '../widgets/gift_panel.dart';
 import '../widgets/gift_overlay.dart';
 import '../widgets/chat_panel.dart';
+import '../services/chat_service.dart';
 
 class VoiceRoomScreen extends StatefulWidget {
   final String? roomId;
@@ -24,14 +25,11 @@ class VoiceRoomScreen extends StatefulWidget {
 
 class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
   final TRTCService _trtc = TRTCService();
+  final ChatService _chat = ChatService();
   final TextEditingController _chatCtrl = TextEditingController();
   final ScrollController _chatScroll = ScrollController();
   bool _isJoined = false;
   String _lastUserId = '';
-
-  final List<ChatMessage> _chatMessages = [];
-  String _currentUserId = '';
-  String _currentDisplayName = '';
 
   static const int _totalSeats = 8;
 
@@ -73,8 +71,6 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
       final userId = _getUserId();
       final displayName = _getDisplayName();
       _lastUserId = userId;
-      _currentUserId = userId;
-      _currentDisplayName = displayName;
       await _trtc.initialize();
       if (widget.isHost) {
         await _trtc.createRoom(roomId: _roomId, userId: userId, displayName: displayName);
@@ -82,6 +78,11 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
         await _trtc.joinRoom(roomId: _roomId, userId: userId, displayName: displayName);
       }
       _trtc.addListener(_onUpdate);
+      // Enter IM chat room (non-blocking — audio works even if chat fails)
+      _chat.enterRoom(userId: userId, displayName: displayName, roomId: _roomId).then((_) {
+        _chat.addListener(_onUpdate);
+        if (mounted) setState(() {});
+      });
       if (mounted) setState(() => _isJoined = true);
     } catch (e) {
       debugPrint('TRTC init error: $e');
@@ -95,15 +96,7 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
   }
 
   void _sendChatMessage(String text) {
-    setState(() {
-      _chatMessages.add(ChatMessage(
-        senderId: _currentUserId,
-        senderName: _currentDisplayName,
-        text: text,
-        isSelf: true,
-      ));
-    });
-    _scrollChatToBottom();
+    _chat.sendMessage(text);
   }
 
   void _showGiftPanel() {
@@ -112,16 +105,8 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
       final sender = user.username.isNotEmpty ? user.username : 'You';
       GiftOverlay.show(context, gift: gift, sender: sender);
 
-      // System chat message
-      setState(() {
-        _chatMessages.add(ChatMessage(
-          senderId: 'system',
-          senderName: '',
-          text: '${gift.emoji} $sender sent a ${gift.label}',
-          isSystem: true,
-        ));
-      });
-      _scrollChatToBottom();
+      // Send gift notification as chat message via IM
+      _chat.sendMessage('${gift.emoji} $sender sent a ${gift.label}');
     });
   }
 
@@ -138,6 +123,7 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
       roomModel.leaveRoom();
     }
     await _trtc.leaveRoom();
+    _chat.leaveRoom();
     if (mounted) Navigator.pop(context);
   }
 
@@ -170,6 +156,8 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
   void dispose() {
     _trtc.removeListener(_onUpdate);
     _trtc.dispose();
+    _chat.removeListener(_onUpdate);
+    _chat.dispose();
     _chatCtrl.dispose();
     _chatScroll.dispose();
     super.dispose();
@@ -260,7 +248,7 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
               ),
 
               // ── Chat messages (always visible) ──
-              if (_chatMessages.isNotEmpty)
+              if (_chat.messages.isNotEmpty)
                 Container(
                   height: 120,
                   decoration: BoxDecoration(
@@ -270,9 +258,9 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
                   child: ListView.builder(
                     controller: _chatScroll,
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    itemCount: _chatMessages.length,
+                    itemCount: _chat.messages.length,
                     itemBuilder: (_, i) {
-                      final m = _chatMessages[i];
+                      final m = _chat.messages[i];
                       // System message (gift notification, etc.)
                       if (m.isSystem) {
                         return Padding(

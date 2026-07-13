@@ -4,6 +4,7 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   permission_handler_windows
+  tencent_cloud_chat_sdk
   tencent_rtc_sdk
 )
 
