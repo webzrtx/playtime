@@ -2,20 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import '../models/user_model.dart';
+import '../models/room_model.dart';
 import '../services/trtc_service.dart';
 import '../config/trtc_config.dart';
 
-/// Voice room screen — real TRTC voice chat.
-/// Host uses [isHost]=true to create the room; guests join with [isHost]=false.
+/// Voice room screen — real TRTC voice chat with host/audience roles.
 class VoiceRoomScreen extends StatefulWidget {
   final String? roomId;
   final bool isHost;
 
-  const VoiceRoomScreen({
-    super.key,
-    this.roomId,
-    this.isHost = false,
-  });
+  const VoiceRoomScreen({super.key, this.roomId, this.isHost = false});
 
   @override
   State<VoiceRoomScreen> createState() => _VoiceRoomScreenState();
@@ -25,13 +21,15 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
   final TRTCService _trtc = TRTCService();
   bool _isJoined = false;
   bool _isHandRaised = false;
+  String _lastUserId = '';
 
   String get _roomId => widget.roomId ?? TRTCConfig.defaultRoomId.toString();
+
   String _getUserId() {
     final user = Provider.of<UserModel>(context, listen: false);
+    if (_lastUserId.isNotEmpty) return _lastUserId;
     if (user.id.isNotEmpty) return user.id;
-    // Fallback: stable random ID for guest without login
-    return 'user_${DateTime.now().millisecondsSinceEpoch.remainder(100000)}';
+    return 'guest_${DateTime.now().millisecondsSinceEpoch.remainder(100000)}';
   }
 
   @override
@@ -41,17 +39,15 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
   }
 
   Future<void> _initAndEnter() async {
-    // Request microphone permission first
     final status = await Permission.microphone.request();
     if (status != PermissionStatus.granted) {
-      if (mounted) {
-        setState(() => _isJoined = true); // show UI with error
-      }
+      if (mounted) setState(() => _isJoined = true);
       return;
     }
 
     try {
       final userId = _getUserId();
+      _lastUserId = userId;
       await _trtc.initialize();
 
       if (widget.isHost) {
@@ -60,41 +56,46 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
         await _trtc.joinRoom(roomId: _roomId, userId: userId);
       }
 
-      _trtc.addListener(_onServiceUpdate);
+      _trtc.addListener(_onUpdate);
       if (mounted) setState(() => _isJoined = true);
     } catch (e) {
       debugPrint('TRTC init error: $e');
-      _trtc.addListener(_onServiceUpdate);
-      if (mounted) setState(() => _isJoined = true); // show UI anyway
+      _trtc.addListener(_onUpdate);
+      if (mounted) setState(() => _isJoined = true);
     }
   }
 
-  void _onServiceUpdate() {
+  void _onUpdate() {
     if (mounted) setState(() {});
   }
 
   Future<void> _leaveRoom() async {
+    final roomModel = Provider.of<RoomModel>(context, listen: false);
+    if (widget.isHost) {
+      roomModel.removeRoom(_roomId);
+    } else {
+      roomModel.leaveRoom();
+    }
     await _trtc.leaveRoom();
     if (mounted) Navigator.pop(context);
   }
 
   @override
   void dispose() {
-    _trtc.removeListener(_onServiceUpdate);
+    _trtc.removeListener(_onUpdate);
     _trtc.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final participants = widget.isHost
-        ? _trtc.participants
-        : _trtc.participants;
+    final participants = _trtc.participants;
+    final anchors = _trtc.anchors;
+    final audience = _trtc.audience;
 
     return Scaffold(
       appBar: AppBar(
-        title:
-            Text('Room $_roomId', style: const TextStyle(color: Colors.black)),
+        title: Text('Room $_roomId', style: const TextStyle(color: Colors.black)),
         backgroundColor: Colors.white,
         iconTheme: const IconThemeData(color: Colors.black),
         leading: IconButton(
@@ -106,299 +107,348 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
         color: Colors.white,
         child: Column(
           children: [
-            // Status bar with room info + mic level
-            Container(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.green.shade50,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(Icons.people,
-                                size: 16, color: Colors.green.shade700),
-                            const SizedBox(width: 4),
-                            Text('${participants.length}/10',
-                                style: TextStyle(
-                                    color: Colors.green.shade700)),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          _isJoined ? '🟢 Live — Room $_roomId' : 'Connecting...',
-                          style: TextStyle(
-                            color: _isJoined
-                                ? Colors.deepPurple.shade700
-                                : Colors.orange.shade700,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (_isJoined) ...[
-                    const SizedBox(height: 10),
-                    // Mic volume bar
-                    Row(
-                      children: [
-                        Icon(
-                          _trtc.isMuted ? Icons.mic_off : Icons.mic,
-                          size: 16,
-                          color: _trtc.isMuted ? Colors.red : Colors.green,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          _trtc.isMuted ? 'MUTED' : 'Mic level: ${_trtc.localVolume}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: _trtc.isMuted ? Colors.red : Colors.grey.shade700,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: TweenAnimationBuilder<double>(
-                            tween: Tween(
-                              begin: 0,
-                              end: _trtc.isMuted ? 0 : _trtc.localVolume / 100.0,
-                            ),
-                            duration: const Duration(milliseconds: 150),
-                            builder: (context, value, _) => LinearProgressIndicator(
-                              value: value,
-                              backgroundColor: Colors.grey.shade200,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                value > 0.3 ? Colors.green : Colors.grey,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ],
-              ),
-            ),
+            // Status header
+            _buildStatusHeader(participants.length),
 
             // Error banner
             if (_trtc.lastError != null)
               Container(
-                margin: const EdgeInsets.symmetric(horizontal: 16),
-                padding: const EdgeInsets.all(12),
+                margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
                   color: Colors.red.shade50,
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text('⚠ ${_trtc.lastError}',
-                    style: TextStyle(color: Colors.red.shade700)),
+                    style: TextStyle(color: Colors.red.shade700, fontSize: 12)),
               ),
 
-            // Participant grid
-            Expanded(
-              child: participants.isEmpty
-                  ? Center(
-                      child: Text('Waiting for participants...',
-                          style: TextStyle(color: Colors.grey.shade400)),
-                    )
-                  : GridView.builder(
-                      padding: const EdgeInsets.all(16),
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: 3,
-                        crossAxisSpacing: 12,
-                        mainAxisSpacing: 12,
-                        childAspectRatio: 0.8,
-                      ),
-                      itemCount: participants.length,
-                      itemBuilder: (context, index) {
-                        final p = participants[index];
-                        return _ParticipantCard(
-                          userId: p.userId,
-                          isHost: index == 0,
-                          isSpeaking: p.isSpeaking,
-                          volume: p.volume,
-                        );
-                      },
-                    ),
-            ),
+            // Loading
+            if (!_isJoined)
+              const Expanded(
+                child: Center(child: CircularProgressIndicator()),
+              ),
+
+            // Anchors (seats)
+            if (_isJoined && anchors.isNotEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                child: Row(
+                  children: [
+                    const Icon(Icons.mic, size: 14, color: Colors.deepPurple),
+                    const SizedBox(width: 6),
+                    Text('Speakers (${anchors.length}/50)',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: Colors.deepPurple,
+                            fontSize: 13)),
+                  ],
+                ),
+              ),
+              SizedBox(
+                height: 120,
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  itemCount: anchors.length,
+                  itemBuilder: (_, i) =>
+                      _AnchorSeat(participant: anchors[i]),
+                ),
+              ),
+            ],
+
+            // Audience
+            if (_isJoined && audience.isNotEmpty) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                child: Row(
+                  children: [
+                    const Icon(Icons.headset_mic, size: 14, color: Colors.grey),
+                    const SizedBox(width: 6),
+                    Text('Listening (${audience.length})',
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: Colors.grey,
+                            fontSize: 13)),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: audience.length,
+                  itemBuilder: (_, i) =>
+                      _AudienceTile(participant: audience[i]),
+                ),
+              ),
+            ],
+
+            // Empty state
+            if (_isJoined && participants.isEmpty)
+              const Expanded(
+                child: Center(
+                  child: Text('Waiting for others to join...',
+                      style: TextStyle(color: Colors.grey)),
+                ),
+              ),
 
             // Bottom controls
-            Container(
-              padding: const EdgeInsets.all(24),
-              color: Colors.grey.shade100,
-              child: SafeArea(
-                child: _isJoined
-                    ? Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                        children: [
-                          _ControlButton(
-                            icon: _trtc.isMuted ? Icons.mic_off : Icons.mic,
-                            label: _trtc.isMuted ? 'Unmute' : 'Mute',
-                            color:
-                                _trtc.isMuted ? Colors.red : Colors.black,
-                            isActive: _trtc.isMuted,
-                            onTap: () => _trtc.toggleMute(),
-                          ),
-                          _ControlButton(
-                            icon: Icons.volume_up,
-                            label: _trtc.isSpeakerOn ? 'Speaker' : 'Earpiece',
-                            color: Colors.black,
-                            isActive: _trtc.isSpeakerOn,
-                            onTap: () => _trtc.toggleSpeaker(),
-                          ),
-                          _ControlButton(
-                            icon: Icons.pan_tool,
-                            label: 'Hand',
-                            color: _isHandRaised
-                                ? Colors.orange
-                                : Colors.black,
-                            isActive: _isHandRaised,
-                            onTap: () =>
-                                setState(() => _isHandRaised = !_isHandRaised),
-                          ),
-                          _ControlButton(
-                            icon: Icons.call_end,
-                            label: 'Leave',
-                            color: Colors.red,
-                            isActive: false,
-                            onTap: _leaveRoom,
-                          ),
-                        ],
-                      )
-                    : ElevatedButton(
-                        onPressed: _initAndEnter,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.deepPurple,
-                          minimumSize: const Size(double.infinity, 48),
-                        ),
-                        child: const Text('Join Voice Room',
-                            style:
-                                TextStyle(color: Colors.white, fontSize: 16)),
-                      ),
-              ),
-            ),
+            if (_isJoined) _buildControls(),
           ],
         ),
       ),
     );
   }
-}
 
-/// Single participant card showing avatar + speaking indicator.
-class _ParticipantCard extends StatelessWidget {
-  final String userId;
-  final bool isHost;
-  final bool isSpeaking;
-  final int volume;
-
-  const _ParticipantCard({
-    required this.userId,
-    required this.isHost,
-    required this.isSpeaking,
-    required this.volume,
-  });
-
-  Color _avatarColor(String id) {
-    final colors = [
-      Colors.deepPurple,
-      Colors.pink,
-      Colors.blue,
-      Colors.orange,
-      Colors.teal,
-      Colors.indigo,
-    ];
-    return colors[id.hashCode.abs() % colors.length];
+  Widget _buildStatusHeader(int count) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              _StatusBadge(
+                  icon: Icons.people,
+                  label: '$count',
+                  color: Colors.green),
+              const SizedBox(width: 8),
+              _StatusBadge(
+                  icon: _isJoined ? Icons.wifi : Icons.wifi_off,
+                  label: _isJoined ? 'Live' : '...',
+                  color: _isJoined ? Colors.deepPurple : Colors.orange),
+              const Spacer(),
+              if (_trtc.hasSeat) ...[
+                Icon(_trtc.isMuted ? Icons.mic_off : Icons.mic,
+                    size: 14, color: _trtc.isMuted ? Colors.red : Colors.green),
+                const SizedBox(width: 4),
+                SizedBox(
+                  width: 80,
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween(
+                        begin: 0,
+                        end: _trtc.isMuted ? 0 : _trtc.localVolume / 100.0),
+                    duration: const Duration(milliseconds: 150),
+                    builder: (_, v, __) => LinearProgressIndicator(
+                      value: v,
+                      backgroundColor: Colors.grey.shade200,
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                          v > 0.3 ? Colors.green : Colors.grey),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+          if (_trtc.hasSeat && !_trtc.isHost)
+            const Padding(
+              padding: EdgeInsets.only(top: 6),
+              child: Text('🎤 You have a seat — mic is live',
+                  style: TextStyle(fontSize: 11, color: Colors.deepPurple)),
+            ),
+        ],
+      ),
+    );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final color = _avatarColor(userId);
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Stack(
-          children: [
-            Container(
-              width: 60,
-              height: 60,
-              decoration: BoxDecoration(
-                color: color,
-                shape: BoxShape.circle,
-                border: isSpeaking
-                    ? Border.all(color: Colors.green, width: 3)
-                    : null,
+  Widget _buildControls() {
+    final isAudience = !_trtc.hasSeat;
+
+    return Container(
+      padding: const EdgeInsets.all(24),
+      color: Colors.grey.shade100,
+      child: SafeArea(
+        child: isAudience
+            ? SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () => _trtc.requestSeat(),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.deepPurple,
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  icon: const Icon(Icons.mic, color: Colors.white),
+                  label: const Text('Request Seat (Speak)',
+                      style: TextStyle(color: Colors.white, fontSize: 16)),
+                ),
+              )
+            : Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _CtrlBtn(
+                    icon: _trtc.isMuted ? Icons.mic_off : Icons.mic,
+                    label: _trtc.isMuted ? 'Unmute' : 'Mute',
+                    color: _trtc.isMuted ? Colors.red : Colors.black,
+                    active: _trtc.isMuted,
+                    onTap: () => _trtc.toggleMute(),
+                  ),
+                  _CtrlBtn(
+                    icon: Icons.volume_up,
+                    label: 'Speaker',
+                    color: Colors.black,
+                    active: _trtc.isSpeakerOn,
+                    onTap: () => _trtc.toggleSpeaker(),
+                  ),
+                  if (!_trtc.isHost)
+                    _CtrlBtn(
+                      icon: Icons.event_seat,
+                      label: 'Leave Seat',
+                      color: Colors.orange,
+                      active: false,
+                      onTap: () => _trtc.leaveSeat(),
+                    ),
+                  _CtrlBtn(
+                    icon: _isHandRaised ? Icons.pan_tool : Icons.front_hand,
+                    label: 'Hand',
+                    color: _isHandRaised ? Colors.orange : Colors.black,
+                    active: _isHandRaised,
+                    onTap: () =>
+                        setState(() => _isHandRaised = !_isHandRaised),
+                  ),
+                  _CtrlBtn(
+                    icon: Icons.call_end,
+                    label: 'Leave',
+                    color: Colors.red,
+                    active: false,
+                    onTap: _leaveRoom,
+                  ),
+                ],
               ),
-              child: const Icon(Icons.person, color: Colors.white, size: 30),
-            ),
-            if (isHost)
-              const Positioned(
-                right: 0,
-                bottom: 0,
-                child: Icon(Icons.star, size: 14, color: Colors.amber),
-              ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Text(
-          userId,
-          style: const TextStyle(color: Colors.black, fontSize: 12),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-        Text(
-          '$volume',
-          style: TextStyle(color: Colors.grey.shade500, fontSize: 10),
-        ),
-      ],
+      ),
     );
   }
 }
 
-/// Circular control button used in bottom bar.
-class _ControlButton extends StatelessWidget {
+// -- Widgets ---------------------------------------------------------
+
+class _StatusBadge extends StatelessWidget {
   final IconData icon;
   final String label;
   final Color color;
-  final bool isActive;
+  const _StatusBadge(
+      {required this.icon, required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(icon, size: 14, color: color),
+        const SizedBox(width: 4),
+        Text(label,
+            style: TextStyle(
+                color: color, fontWeight: FontWeight.w600, fontSize: 12)),
+      ]),
+    );
+  }
+}
+
+class _AnchorSeat extends StatelessWidget {
+  final Participant participant;
+  const _AnchorSeat({required this.participant});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 80,
+      margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+      child: Column(
+        children: [
+          Stack(
+            children: [
+              Container(
+                width: 55, height: 55,
+                decoration: BoxDecoration(
+                  color: participant.isHost ? Colors.amber.shade700 : Colors.deepPurple,
+                  shape: BoxShape.circle,
+                  border: participant.isSpeaking
+                      ? Border.all(color: Colors.green, width: 3)
+                      : null,
+                ),
+                child: Icon(participant.isHost ? Icons.star : Icons.person,
+                    color: Colors.white, size: 24),
+              ),
+              if (participant.isSpeaking)
+                Positioned(
+                  bottom: 0, right: 0,
+                  child: Container(
+                    width: 14, height: 14,
+                    decoration: const BoxDecoration(
+                        color: Colors.green, shape: BoxShape.circle),
+                    child: const Icon(Icons.mic, size: 8, color: Colors.white),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(participant.userId.length > 8
+                  ? '${participant.userId.substring(0, 6)}..'
+                  : participant.userId,
+              style: const TextStyle(fontSize: 10, color: Colors.black87),
+              maxLines: 1, overflow: TextOverflow.ellipsis),
+          Text('${participant.volume}',
+              style: TextStyle(fontSize: 9, color: Colors.grey.shade500)),
+        ],
+      ),
+    );
+  }
+}
+
+class _AudienceTile extends StatelessWidget {
+  final Participant participant;
+  const _AudienceTile({required this.participant});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      dense: true,
+      leading: CircleAvatar(
+        radius: 16,
+        backgroundColor: Colors.grey.shade300,
+        child: const Icon(Icons.person, size: 16, color: Colors.white),
+      ),
+      title: Text(participant.userId,
+          style: const TextStyle(fontSize: 13)),
+      trailing: Icon(Icons.headset_mic, size: 16, color: Colors.grey.shade400),
+    );
+  }
+}
+
+class _CtrlBtn extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final Color color;
+  final bool active;
   final VoidCallback onTap;
 
-  const _ControlButton({
-    required this.icon,
-    required this.label,
-    required this.color,
-    required this.isActive,
-    required this.onTap,
-  });
+  const _CtrlBtn(
+      {required this.icon,
+      required this.label,
+      required this.color,
+      required this.active,
+      required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 50,
-            height: 50,
-            decoration: BoxDecoration(
-              color: isActive ? color.withOpacity(0.2) : Colors.grey.shade200,
-              shape: BoxShape.circle,
-              border: Border.all(color: color.withOpacity(0.5)),
-            ),
-            child: Icon(icon, color: color),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Container(
+          width: 48, height: 48,
+          decoration: BoxDecoration(
+            color: active ? color.withOpacity(0.15) : Colors.grey.shade200,
+            shape: BoxShape.circle,
+            border: Border.all(color: color.withOpacity(0.5)),
           ),
-          const SizedBox(height: 4),
-          Text(label,
-              style: TextStyle(color: Colors.grey.shade700, fontSize: 10)),
-        ],
-      ),
+          child: Icon(icon, color: color, size: 22),
+        ),
+        const SizedBox(height: 4),
+        Text(label,
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 10)),
+      ]),
     );
   }
 }

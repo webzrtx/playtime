@@ -2,7 +2,8 @@
 //
 // Thin wrapper around [TRTCCloud] with:
 //  - SDK initialization / disposal
-//  - Room lifecycle (create = enterRoom as anchor, join, leave, destroy)
+//  - Room lifecycle (create as host/anchor, join as audience, leave, destroy)
+//  - Seat management (audience → anchor switch, anchor → audience)
 //  - Voice engine (mute, unmute, speaker routing)
 //  - User audio volume callbacks for speaking indicators
 //
@@ -17,16 +18,38 @@ import 'package:tencent_rtc_sdk/tx_device_manager.dart';
 import '../config/trtc_config.dart';
 import 'user_sig_service.dart';
 
+enum ParticipantRole { host, anchor, audience }
+
 /// Participant data surfaced to the UI.
 class Participant {
   final String userId;
+  final ParticipantRole role;
   final bool isSpeaking;
   final int volume;
-  const Participant({required this.userId, this.isSpeaking = false, this.volume = 0});
-}
+  const Participant({
+    required this.userId,
+    this.role = ParticipantRole.audience,
+    this.isSpeaking = false,
+    this.volume = 0,
+  });
 
-/// Room join result.
-enum TRTCJoinResult { success, error }
+  bool get hasSeat => role != ParticipantRole.audience;
+  bool get isHost => role == ParticipantRole.host;
+
+  Participant copyWith({
+    String? userId,
+    ParticipantRole? role,
+    bool? isSpeaking,
+    int? volume,
+  }) {
+    return Participant(
+      userId: userId ?? this.userId,
+      role: role ?? this.role,
+      isSpeaking: isSpeaking ?? this.isSpeaking,
+      volume: volume ?? this.volume,
+    );
+  }
+}
 
 /// TRTC Service — singleton wrapping TRTCCloud.
 class TRTCService extends ChangeNotifier {
@@ -42,6 +65,8 @@ class TRTCService extends ChangeNotifier {
   bool _isMuted = false;
   bool _isSpeakerOn = true;
   int _localVolume = 0;
+  bool _isHost = false;
+  ParticipantRole _myRole = ParticipantRole.audience;
 
   final List<Participant> _participants = [];
   final Map<String, int> _volumes = {};
@@ -54,8 +79,14 @@ class TRTCService extends ChangeNotifier {
   bool get isSpeakerOn => _isSpeakerOn;
   String? get lastError => _lastError;
   int get localVolume => _localVolume;
+  bool get isHost => _isHost;
+  ParticipantRole get myRole => _myRole;
+  bool get hasSeat => _myRole != ParticipantRole.audience;
   List<Participant> get participants => List.unmodifiable(_participants);
-  Map<String, int> get volumes => Map.unmodifiable(_volumes);
+  List<Participant> get anchors =>
+      _participants.where((p) => p.hasSeat).toList();
+  List<Participant> get audience =>
+      _participants.where((p) => !p.hasSeat).toList();
 
   // -- Initialization -------------------------------------------------
 
@@ -87,11 +118,12 @@ class TRTCService extends ChangeNotifier {
         debugPrint('TRTC exitRoom reason=$reason');
         _participants.clear();
         _volumes.clear();
+        _myRole = ParticipantRole.audience;
         notifyListeners();
       },
       onRemoteUserEnterRoom: (uid) {
         debugPrint('TRTC remote user entered: $uid');
-        _participants.add(Participant(userId: uid));
+        _participants.add(Participant(userId: uid, role: ParticipantRole.audience));
         notifyListeners();
       },
       onRemoteUserLeaveRoom: (uid, reason) {
@@ -102,6 +134,14 @@ class TRTCService extends ChangeNotifier {
       },
       onUserAudioAvailable: (uid, available) {
         debugPrint('TRTC user audio: $uid available=$available');
+        // Update role — if user published audio, they took a seat
+        if (available) {
+          _updateParticipantRole(uid, ParticipantRole.anchor);
+        }
+      },
+      onSwitchRole: (errCode, errMsg) {
+        debugPrint('TRTC switchRole: $errCode — $errMsg');
+        notifyListeners();
       },
       onUserVoiceVolume: (userVolumes, totalVolume) {
         for (final v in userVolumes) {
@@ -115,12 +155,8 @@ class TRTCService extends ChangeNotifier {
         for (var i = 0; i < _participants.length; i++) {
           final p = _participants[i];
           final vol = _volumes[p.userId] ?? 0;
-          if (p.volume != vol) {
-            _participants[i] = Participant(
-              userId: p.userId,
-              volume: vol,
-              isSpeaking: vol > 5,
-            );
+          if (p.volume != vol || p.isSpeaking != (vol > 5)) {
+            _participants[i] = p.copyWith(volume: vol, isSpeaking: vol > 5);
           }
         }
         notifyListeners();
@@ -144,15 +180,26 @@ class TRTCService extends ChangeNotifier {
     _cloud!.registerListener(_listener!);
   }
 
+  void _updateParticipantRole(String uid, ParticipantRole role) {
+    for (var i = 0; i < _participants.length; i++) {
+      if (_participants[i].userId == uid) {
+        _participants[i] = _participants[i].copyWith(role: role);
+        break;
+      }
+    }
+  }
+
   // -- Room lifecycle -------------------------------------------------
 
-  /// Create/enter room as anchor. For host users.
+  /// Create room as host (anchor). For room creators.
   Future<void> createRoom({
     required String roomId,
     required String userId,
   }) async {
     _userId = userId;
     _roomId = roomId;
+    _isHost = true;
+    _myRole = ParticipantRole.host;
 
     final userSig = UserSigService.generate(
       sdkAppId: TRTCConfig.sdkAppId,
@@ -161,9 +208,8 @@ class TRTCService extends ChangeNotifier {
       expireSeconds: TRTCConfig.userSigExpireSeconds,
     );
 
-    // Add self as host participant
     _participants.clear();
-    _participants.add(Participant(userId: userId));
+    _participants.add(Participant(userId: userId, role: ParticipantRole.host));
 
     final params = TRTCParams(
       sdkAppId: TRTCConfig.sdkAppId,
@@ -175,7 +221,6 @@ class TRTCService extends ChangeNotifier {
 
     _cloud!.enterRoom(params, TRTCAppScene.voiceChatRoom);
 
-    // Enable audio volume callbacks for speaking indicators
     _cloud!.enableAudioVolumeEvaluation(
       true,
       TRTCAudioVolumeEvaluateParams(interval: 300),
@@ -183,13 +228,15 @@ class TRTCService extends ChangeNotifier {
     _cloud!.startLocalAudio(TRTCAudioQuality.speech);
   }
 
-  /// Join an existing room.
+  /// Join an existing room as audience (listen only).
   Future<void> joinRoom({
     required String roomId,
     required String userId,
   }) async {
     _userId = userId;
     _roomId = roomId;
+    _isHost = false;
+    _myRole = ParticipantRole.audience;
 
     final userSig = UserSigService.generate(
       sdkAppId: TRTCConfig.sdkAppId,
@@ -199,23 +246,23 @@ class TRTCService extends ChangeNotifier {
     );
 
     _participants.clear();
-    _participants.add(Participant(userId: userId));
+    _participants.add(Participant(userId: userId, role: ParticipantRole.audience));
 
     final params = TRTCParams(
       sdkAppId: TRTCConfig.sdkAppId,
       userId: userId,
       userSig: userSig,
       strRoomId: roomId,
-      role: TRTCRoleType.anchor,
+      role: TRTCRoleType.audience,
     );
 
     _cloud!.enterRoom(params, TRTCAppScene.voiceChatRoom);
 
+    // Audience doesn't publish audio — just listen + volume callbacks
     _cloud!.enableAudioVolumeEvaluation(
       true,
       TRTCAudioVolumeEvaluateParams(interval: 300),
     );
-    _cloud!.startLocalAudio(TRTCAudioQuality.speech);
   }
 
   /// Leave the current room.
@@ -224,27 +271,49 @@ class TRTCService extends ChangeNotifier {
       _cloud!.exitRoom();
     }
     _roomId = '';
+    _isHost = false;
+    _myRole = ParticipantRole.audience;
     _participants.clear();
     _volumes.clear();
     notifyListeners();
   }
 
-  /// Destroy the room and release SDK resources (host only).
+  /// Destroy room and release SDK resources.
   Future<void> destroyRoom() async {
     await leaveRoom();
     _dispose();
   }
 
+  // -- Seat management -------------------------------------------------
+
+  /// Audience requests to speak → switch to anchor.
+  Future<void> requestSeat() async {
+    if (_myRole != ParticipantRole.audience) return;
+    _cloud?.switchRole(TRTCRoleType.anchor);
+    _myRole = ParticipantRole.anchor;
+    _updateParticipantRole(_userId, ParticipantRole.anchor);
+    _cloud?.startLocalAudio(TRTCAudioQuality.speech);
+    notifyListeners();
+  }
+
+  /// Anchor gives up seat → switch to audience.
+  Future<void> leaveSeat() async {
+    if (_myRole == ParticipantRole.audience) return;
+    _cloud?.switchRole(TRTCRoleType.audience);
+    _cloud?.stopLocalAudio();
+    _myRole = ParticipantRole.audience;
+    _updateParticipantRole(_userId, ParticipantRole.audience);
+    notifyListeners();
+  }
+
   // -- Voice engine controls ------------------------------------------
 
-  /// Toggle local microphone mute.
   Future<void> toggleMute() async {
     _isMuted = !_isMuted;
     _cloud?.muteLocalAudio(_isMuted);
     notifyListeners();
   }
 
-  /// Toggle between speakerphone and earpiece.
   Future<void> toggleSpeaker() async {
     _isSpeakerOn = !_isSpeakerOn;
     _deviceManager?.setAudioRoute(

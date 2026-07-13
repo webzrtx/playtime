@@ -1,110 +1,90 @@
 import 'package:flutter/material.dart';
 
-/// Model representing a voice room
-class RoomModel extends ChangeNotifier {
-  List<Room> _rooms = [];
-  Room? _currentRoom;
-
-  List<Room> get rooms => _rooms;
-  Room? get currentRoom => _currentRoom;
-
-  void loadRooms() {
-    // Sample rooms data
-    _rooms = [
-      Room(
-        id: '1',
-        name: 'Gaming Lounge',
-        hostId: 'user1',
-        hostName: 'ProGamer',
-        currentPlayers: 8,
-        maxPlayers: 10,
-        isPrivate: false,
-        gameType: 'Free Chat',
-        language: 'EN',
-        icon: Icons.headphones,
-      ),
-      Room(
-        id: '2',
-        name: 'Valorant Squad',
-        hostId: 'user2',
-        hostName: 'SniperQueen',
-        currentPlayers: 5,
-        maxPlayers: 5,
-        isPrivate: false,
-        gameType: 'Valorant',
-        language: 'FR',
-        icon: Icons.sports_esports,
-      ),
-      Room(
-        id: '3',
-        name: 'LoL Ranked Team',
-        hostId: 'user3',
-        hostName: 'MidLane',
-        currentPlayers: 4,
-        maxPlayers: 5,
-        isPrivate: true,
-        gameType: 'League of Legends',
-        language: 'EN',
-        icon: Icons.sports_esports,
-      ),
-      Room(
-        id: '4',
-        name: 'Chill Music Room',
-        hostId: 'user4',
-        hostName: 'MusicLover',
-        currentPlayers: 12,
-        maxPlayers: 20,
-        isPrivate: false,
-        gameType: 'Music',
-        language: 'KO',
-        icon: Icons.music_note,
-      ),
-    ];
-    notifyListeners();
-  }
-
-  void joinRoom(String roomId) {
-    _currentRoom = _rooms.firstWhere((r) => r.id == roomId);
-    notifyListeners();
-  }
-
-  void leaveRoom() {
-    _currentRoom = null;
-    notifyListeners();
-  }
-
-  void createRoom(Room room) {
-    _rooms.add(room);
-    _currentRoom = room;
-    notifyListeners();
-  }
-}
-
 class Room {
   final String id;
   final String name;
   final String hostId;
   final String hostName;
-  final int currentPlayers;
-  final int maxPlayers;
+  final int maxSeats;
   final bool isPrivate;
   final String gameType;
   final String language;
   final IconData icon;
+  int _participantCount;
 
   Room({
     required this.id,
     required this.name,
     required this.hostId,
     required this.hostName,
-    required this.currentPlayers,
-    required this.maxPlayers,
-    required this.isPrivate,
-    required this.gameType,
-    required this.language,
-    required this.icon,
-  });
+    this.maxSeats = 10,
+    this.isPrivate = false,
+    this.gameType = 'Voice Chat',
+    this.language = 'EN',
+    this.icon = Icons.headphones,
+    int participantCount = 1,
+  }) : _participantCount = participantCount;
 
-  bool get isFull => currentPlayers >= maxPlayers;
-  double get occupancy => currentPlayers / maxPlayers;
+  int get participantCount => _participantCount;
+  bool get isFull => _participantCount >= maxSeats;
+
+  void incrementParticipants() => _participantCount++;
+  void decrementParticipants() {
+    if (_participantCount > 0) _participantCount--;
+  }
+}
+
+class RoomModel extends ChangeNotifier {
+  final List<Room> _rooms = [];
+  Room? _currentRoom;
+
+  List<Room> get rooms => List.unmodifiable(_rooms);
+  Room? get currentRoom => _currentRoom;
+
+  /// No-op: rooms are created/joined dynamically, not preloaded.
+  void loadRooms() {}
+
+  /// Create a new room and add it to the list.
+  Room createRoom({
+    required String id,
+    required String name,
+    required String hostId,
+    required String hostName,
+  }) {
+    final room = Room(
+      id: id,
+      name: name,
+      hostId: hostId,
+      hostName: hostName,
+    );
+    _rooms.insert(0, room);
+    _currentRoom = room;
+    notifyListeners();
+    return room;
+  }
+
+  /// Join an existing room by ID.
+  Room? joinRoom(String roomId) {
+    _currentRoom = _rooms.firstWhere(
+      (r) => r.id == roomId,
+      orElse: () => _rooms.first, // fallback
+    );
+    _currentRoom?.incrementParticipants();
+    notifyListeners();
+    return _currentRoom;
+  }
+
+  /// Leave the current room.
+  void leaveRoom() {
+    _currentRoom?.decrementParticipants();
+    _currentRoom = null;
+    notifyListeners();
+  }
+
+  /// Remove room from list (host left or room ended).
+  void removeRoom(String roomId) {
+    _rooms.removeWhere((r) => r.id == roomId);
+    if (_currentRoom?.id == roomId) _currentRoom = null;
+    notifyListeners();
+  }
 }

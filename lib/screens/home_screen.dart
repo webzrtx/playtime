@@ -549,7 +549,7 @@ class _RoomCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  '${room.currentPlayers}/${room.maxPlayers}',
+                  '${room.participantCount}/${room.maxSeats}',
                   style: TextStyle(
                     color: room.isFull ? Colors.red : Colors.green,
                     fontSize: 12,

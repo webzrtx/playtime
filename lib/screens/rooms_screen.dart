@@ -4,7 +4,6 @@ import 'package:uuid/uuid.dart';
 import '../models/room_model.dart';
 import 'voice_room_screen.dart';
 
-/// Screen showing list of voice rooms
 class RoomsScreen extends StatefulWidget {
   const RoomsScreen({super.key});
 
@@ -13,32 +12,16 @@ class RoomsScreen extends StatefulWidget {
 }
 
 class _RoomsScreenState extends State<RoomsScreen> {
-  String _searchQuery = '';
   String _selectedFilter = 'All';
-
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      Provider.of<RoomModel>(context, listen: false).loadRooms();
-    });
-  }
 
   void _createAndEnterRoom(String name) {
     final roomModel = Provider.of<RoomModel>(context, listen: false);
-    final room = Room(
+    final room = roomModel.createRoom(
       id: const Uuid().v4().substring(0, 8),
       name: name,
       hostId: 'self',
       hostName: 'You',
-      currentPlayers: 1,
-      maxPlayers: 10,
-      isPrivate: false,
-      gameType: 'Voice Chat',
-      language: 'EN',
-      icon: Icons.headphones,
     );
-    roomModel.createRoom(room);
 
     Navigator.push(
       context,
@@ -50,6 +33,8 @@ class _RoomsScreenState extends State<RoomsScreen> {
 
   void _joinRoom(Room room) {
     if (room.isFull) return;
+    Provider.of<RoomModel>(context, listen: false).joinRoom(room.id);
+
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -58,15 +43,15 @@ class _RoomsScreenState extends State<RoomsScreen> {
     );
   }
 
-  void _showCreateRoomDialog() {
-    final nameController = TextEditingController();
+  void _showCreateDialog() {
+    final ctrl = TextEditingController();
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: const Color(0xFF16213E),
         title: const Text('Create Room', style: TextStyle(color: Colors.white)),
         content: TextField(
-          controller: nameController,
+          controller: ctrl,
           autofocus: true,
           style: const TextStyle(color: Colors.white),
           decoration: InputDecoration(
@@ -75,19 +60,19 @@ class _RoomsScreenState extends State<RoomsScreen> {
             filled: true,
             fillColor: Colors.white.withOpacity(0.1),
             border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide.none,
-            ),
+                borderRadius: BorderRadius.circular(12),
+                borderSide: BorderSide.none),
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel', style: TextStyle(color: Colors.white70)),
+            child:
+                const Text('Cancel', style: TextStyle(color: Colors.white70)),
           ),
           ElevatedButton(
             onPressed: () {
-              final name = nameController.text.trim();
+              final name = ctrl.text.trim();
               if (name.isNotEmpty) {
                 Navigator.pop(ctx);
                 _createAndEnterRoom(name);
@@ -106,7 +91,8 @@ class _RoomsScreenState extends State<RoomsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Voice Rooms', style: TextStyle(color: Colors.white)),
+        title:
+            const Text('Voice Rooms', style: TextStyle(color: Colors.white)),
         backgroundColor: const Color(0xFF1A1A2E),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back, color: Colors.white),
@@ -117,82 +103,77 @@ class _RoomsScreenState extends State<RoomsScreen> {
         color: const Color(0xFF1A1A2E),
         child: Column(
           children: [
-            // Search bar
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: TextField(
-                style: const TextStyle(color: Colors.white),
-                decoration: InputDecoration(
-                  hintText: 'Search rooms...',
-                  hintStyle: TextStyle(color: Colors.white.withOpacity(0.5)),
-                  prefixIcon: Icon(Icons.search, color: Colors.white.withOpacity(0.5)),
-                  filled: true,
-                  fillColor: Colors.white.withOpacity(0.1),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide.none,
-                  ),
-                ),
-                onChanged: (value) => setState(() => _searchQuery = value),
-              ),
-            ),
-
             // Filters
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.all(16),
               child: Row(
-                children: ['All', 'Public', 'Private', 'Gaming', 'Music'].map((filter) {
-                  final isSelected = _selectedFilter == filter;
+                children: ['All', 'Public', 'Gaming', 'Music'].map((f) {
+                  final sel = _selectedFilter == f;
                   return Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: FilterChip(
-                      label: Text(filter),
-                      selected: isSelected,
-                      onSelected: (selected) => setState(() => _selectedFilter = filter),
+                      label: Text(f),
+                      selected: sel,
+                      onSelected: (_) => setState(() => _selectedFilter = f),
                       backgroundColor: Colors.white.withOpacity(0.1),
                       selectedColor: Colors.deepPurple,
                       labelStyle: TextStyle(
-                        color: isSelected ? Colors.white : Colors.white70,
-                      ),
+                          color: sel ? Colors.white : Colors.white70),
                     ),
                   );
                 }).toList(),
               ),
             ),
-            const SizedBox(height: 16),
 
             // Room list
             Expanded(
-              child: ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                itemCount: rooms.length,
-                itemBuilder: (context, index) {
-                  final room = rooms[index];
-                  return _RoomListItem(
-                    room: room,
-                    onTap: () => _joinRoom(room),
-                  );
-                },
-              ),
+              child: rooms.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.mic_none,
+                              size: 48, color: Colors.white.withOpacity(0.3)),
+                          const SizedBox(height: 12),
+                          Text('No rooms yet',
+                              style: TextStyle(
+                                  color: Colors.white.withOpacity(0.5),
+                                  fontSize: 16)),
+                          const SizedBox(height: 4),
+                          Text('Tap + to create one',
+                              style: TextStyle(
+                                  color: Colors.white.withOpacity(0.3),
+                                  fontSize: 13)),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: rooms.length,
+                      itemBuilder: (_, i) => _RoomCard(
+                        room: rooms[i],
+                        onTap: () => _joinRoom(rooms[i]),
+                      ),
+                    ),
             ),
           ],
         ),
       ),
       floatingActionButton: FloatingActionButton(
         backgroundColor: Colors.deepPurple,
-        onPressed: _showCreateRoomDialog,
+        onPressed: _showCreateDialog,
         child: const Icon(Icons.add, color: Colors.white),
       ),
     );
   }
 }
 
-class _RoomListItem extends StatelessWidget {
+class _RoomCard extends StatelessWidget {
   final Room room;
   final VoidCallback onTap;
 
-  const _RoomListItem({required this.room, required this.onTap});
+  const _RoomCard({required this.room, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -205,49 +186,31 @@ class _RoomListItem extends StatelessWidget {
       child: ListTile(
         contentPadding: const EdgeInsets.all(12),
         leading: Container(
-          width: 50,
-          height: 50,
+          width: 48,
+          height: 48,
           decoration: BoxDecoration(
             color: Colors.deepPurple.withOpacity(0.3),
             borderRadius: BorderRadius.circular(12),
           ),
           child: Icon(room.icon, color: Colors.deepPurple),
         ),
-        title: Text(
-          room.name,
-          style: const TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
+        title: Text(room.name,
+            style: const TextStyle(
+                color: Colors.white, fontWeight: FontWeight.bold)),
+        subtitle: Text('${room.hostName} • ${room.gameType}',
+            style: TextStyle(color: Colors.white.withOpacity(0.6))),
+        trailing: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          decoration: BoxDecoration(
+            color: room.isFull
+                ? Colors.red.withOpacity(0.3)
+                : Colors.green.withOpacity(0.3),
+            borderRadius: BorderRadius.circular(8),
           ),
-        ),
-        subtitle: Text(
-          '${room.hostName} • ${room.gameType}',
-          style: TextStyle(color: Colors.white.withOpacity(0.6)),
-        ),
-        trailing: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: room.isFull ? Colors.red.withOpacity(0.3) : Colors.green.withOpacity(0.3),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                '${room.currentPlayers}/${room.maxPlayers}',
-                style: TextStyle(
+          child: Text('${room.participantCount}/${room.maxSeats}',
+              style: TextStyle(
                   color: room.isFull ? Colors.red : Colors.green,
-                  fontSize: 12,
-                ),
-              ),
-            ),
-            if (room.isPrivate)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Icon(Icons.lock, size: 14, color: Colors.white.withOpacity(0.5)),
-              ),
-          ],
+                  fontSize: 12)),
         ),
         onTap: room.isFull ? null : onTap,
       ),
