@@ -37,6 +37,9 @@ dependencies:
   # Crypto for UserSig HMAC-SHA256 generation
   crypto: ^3.0.6
 
+  # Runtime permissions (microphone)
+  permission_handler: ^11.3.1
+
   # State management
   provider: ^6.1.2
 

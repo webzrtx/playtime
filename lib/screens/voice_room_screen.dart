@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../services/trtc_service.dart';
 import '../config/trtc_config.dart';
 
@@ -34,6 +35,15 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
   }
 
   Future<void> _initAndEnter() async {
+    // Request microphone permission first
+    final status = await Permission.microphone.request();
+    if (status != PermissionStatus.granted) {
+      if (mounted) {
+        setState(() => _isJoined = true); // show UI with error
+      }
+      return;
+    }
+
     try {
       await _trtc.initialize();
 
