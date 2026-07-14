@@ -1,28 +1,27 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:svgaplayer_flutter/svgaplayer_flutter.dart';
 import '../models/gift_model.dart';
 
-/// Overlay that shows floating gift animations.
-/// Call [GiftOverlay.show] to trigger a gift.
+/// Fullscreen SVGA gift animation overlay.
+/// Falls back to emoji-only animation for gifts without an SVGA file.
 class GiftOverlay extends StatefulWidget {
   final GiftItem gift;
   final String senderName;
 
   const GiftOverlay({super.key, required this.gift, required this.senderName});
 
-  /// Show a gift animation on top of the current screen.
-  static void show(BuildContext context, {required GiftItem gift, String sender = 'Someone'}) {
+  static void show(BuildContext context,
+      {required GiftItem gift, String sender = 'Someone'}) {
     final overlay = Overlay.of(context);
     late OverlayEntry entry;
 
     entry = OverlayEntry(
-      builder: (ctx) => _GiftAnimation(
+      builder: (_) => _GiftOverlayWidget(
         gift: gift,
         sender: sender,
         onComplete: () => entry.remove(),
       ),
     );
-
     overlay.insert(entry);
   }
 
@@ -30,81 +29,167 @@ class GiftOverlay extends StatefulWidget {
   State<GiftOverlay> createState() => _GiftOverlayState();
 }
 
-class _GiftOverlayState extends State<GiftOverlay>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  late Animation<double> _opacity;
-  late Animation<double> _translateY;
-  late Animation<double> _scale;
-
+class _GiftOverlayState extends State<GiftOverlay> {
   @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 2200),
-    );
-    _opacity = Tween(begin: 1.0, end: 0.0).animate(
-      CurvedAnimation(parent: _ctrl, curve: const Interval(0.6, 1.0)),
-    );
-    _translateY = Tween(begin: 60.0, end: -200.0).animate(
-      CurvedAnimation(parent: _ctrl, curve: Curves.easeOut),
-    );
-    _scale = TweenSequence([
-      TweenSequenceItem(tween: Tween(begin: 0.3, end: 1.1), weight: 0.15),
-      TweenSequenceItem(tween: Tween(begin: 1.1, end: 1.0), weight: 0.15),
-      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.0), weight: 0.7),
-    ]).animate(_ctrl);
-
-    _ctrl.forward();
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox.expand(child: Container()); // stub — real animation is in _GiftAnimation
-  }
+  Widget build(BuildContext context) =>
+      const SizedBox.expand(child: SizedBox.shrink());
 }
 
-/// Standalone animation widget (used as OverlayEntry builder).
-class _GiftAnimation extends StatefulWidget {
+/// The actual animated overlay.
+class _GiftOverlayWidget extends StatefulWidget {
   final GiftItem gift;
   final String sender;
   final VoidCallback onComplete;
 
-  const _GiftAnimation({
+  const _GiftOverlayWidget({
     required this.gift,
     required this.sender,
     required this.onComplete,
   });
 
   @override
-  State<_GiftAnimation> createState() => _GiftAnimationState();
+  State<_GiftOverlayWidget> createState() => _GiftOverlayWidgetState();
 }
 
-class _GiftAnimationState extends State<_GiftAnimation>
+class _GiftOverlayWidgetState extends State<_GiftOverlayWidget>
     with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  late Animation<double> _opacity;
-  late Animation<double> _translateY;
-  late Animation<double> _scale;
-  late double _startX;
+  SVGAAnimationController? _svgaCtrl;
+  MovieEntity? _movie;
+  bool _loading = true;
 
   @override
   void initState() {
     super.initState();
-    _startX = Random().nextDouble() * 200 - 100; // random horizontal offset
+    if (widget.gift.svgaPath != null) {
+      _svgaCtrl = SVGAAnimationController(vsync: this);
+      _loadSvga();
+    } else {
+      // No SVGA — use simple emoji fallback with timer
+      Future.delayed(const Duration(milliseconds: 2200), widget.onComplete);
+    }
+  }
 
+  Future<void> _loadSvga() async {
+    try {
+      final movie =
+          await SVGAParser.shared.decodeFromAssets(widget.gift.svgaPath!);
+      if (!mounted) return;
+      _movie = movie;
+      _svgaCtrl!.videoItem = movie;
+      _svgaCtrl!
+        ..addStatusListener((s) {
+          if (s == AnimationStatus.completed) widget.onComplete();
+        })
+        ..forward();
+      setState(() => _loading = false);
+    } catch (e) {
+      debugPrint('[GiftOverlay] SVGA load failed: $e');
+      if (mounted) {
+        setState(() => _loading = false);
+        Future.delayed(const Duration(milliseconds: 2200), widget.onComplete);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _svgaCtrl?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // SVGA path
+    if (widget.gift.svgaPath != null) {
+      if (_loading || _movie == null) {
+        return const SizedBox.expand(
+          child: Center(child: CircularProgressIndicator(color: Colors.white54)),
+        );
+      }
+      return SizedBox.expand(
+        child: Stack(
+          children: [
+            // Sender label at the bottom
+            Positioned(
+              bottom: MediaQuery.of(context).size.height * 0.15,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    '${widget.sender} sent ${widget.gift.label}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            // SVGA animation centered
+            Center(
+              child: SVGAImage(
+                _svgaCtrl!,
+                fit: BoxFit.contain,
+                clearsAfterStop: true,
+                filterQuality: FilterQuality.medium,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Fallback: simple emoji float-up animation
+    return _EmojiFallback(
+      emoji: widget.gift.emoji,
+      sender: widget.sender,
+      giftLabel: widget.gift.label,
+      onComplete: widget.onComplete,
+    );
+  }
+}
+
+/// Emoji-only fallback animation (used when no SVGA file is available).
+class _EmojiFallback extends StatefulWidget {
+  final String emoji;
+  final String sender;
+  final String giftLabel;
+  final VoidCallback onComplete;
+
+  const _EmojiFallback({
+    required this.emoji,
+    required this.sender,
+    required this.giftLabel,
+    required this.onComplete,
+  });
+
+  @override
+  State<_EmojiFallback> createState() => _EmojiFallbackState();
+}
+
+class _EmojiFallbackState extends State<_EmojiFallback>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _ctrl;
+  late final Animation<double> _opacity;
+  late final Animation<double> _translateY;
+  late final Animation<double> _scale;
+  final double _startX =
+      (DateTime.now().millisecondsSinceEpoch % 200 - 100).toDouble();
+
+  @override
+  void initState() {
+    super.initState();
     _ctrl = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 2400),
     );
-
     _opacity = Tween(begin: 1.0, end: 0.0).animate(
       CurvedAnimation(parent: _ctrl, curve: const Interval(0.55, 1.0)),
     );
@@ -117,10 +202,9 @@ class _GiftAnimationState extends State<_GiftAnimation>
       TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.8), weight: 0.75),
     ]).animate(_ctrl);
 
-    _ctrl.addStatusListener((status) {
-      if (status == AnimationStatus.completed) widget.onComplete();
+    _ctrl.addStatusListener((s) {
+      if (s == AnimationStatus.completed) widget.onComplete();
     });
-
     _ctrl.forward();
   }
 
@@ -134,29 +218,42 @@ class _GiftAnimationState extends State<_GiftAnimation>
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: _ctrl,
-      builder: (context, _) {
-        return Positioned(
-          bottom: MediaQuery.of(context).size.height * 0.35,
-          left: MediaQuery.of(context).size.width / 2 - 60 + _startX * (1 - _ctrl.value),
-          child: IgnorePointer(
-            child: Opacity(
-              opacity: _opacity.value.clamp(0.0, 1.0),
-              child: Transform.translate(
-                offset: Offset(0, _translateY.value),
-                child: Transform.scale(
-                  scale: _scale.value,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(widget.gift.emoji, style: const TextStyle(fontSize: 48)),
-                    ],
+      builder: (_, __) => Stack(
+        children: [
+          Positioned(
+            bottom: MediaQuery.of(context).size.height * 0.35,
+            left: MediaQuery.of(context).size.width / 2 -
+                60 +
+                _startX * (1 - _ctrl.value),
+            child: IgnorePointer(
+              child: Opacity(
+                opacity: _opacity.value.clamp(0.0, 1.0),
+                child: Transform.translate(
+                  offset: Offset(0, _translateY.value),
+                  child: Transform.scale(
+                    scale: _scale.value,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(widget.emoji,
+                            style: const TextStyle(fontSize: 48)),
+                        const SizedBox(height: 6),
+                        Text(
+                          '${widget.sender} sent ${widget.giftLabel}',
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
           ),
-        );
-      },
+        ],
+      ),
     );
   }
 }

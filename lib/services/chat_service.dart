@@ -40,33 +40,40 @@ class ChatService extends ChangeNotifier {
   /// Initialize IM SDK (call once at app start or before first use).
   Future<void> init() async {
     if (_isLoggedIn) return;
-    final res = await _im.initSDK(
-      sdkAppID: TRTCConfig.sdkAppId,
-      loglevel: LogLevelEnum.V2TIM_LOG_INFO,
-      listener: V2TimSDKListener(
-        onConnecting: () => debugPrint('IM connecting...'),
-        onConnectSuccess: () => debugPrint('IM connected'),
-        onConnectFailed: (code, msg) {
-          _lastError = 'IM connect failed: $code $msg';
-          debugPrint(_lastError);
-        },
-        onKickedOffline: () {
-          _lastError = 'IM kicked offline';
-          _isLoggedIn = false;
-          notifyListeners();
-        },
-        onUserSigExpired: () {
-          _lastError = 'IM UserSig expired';
-          notifyListeners();
-        },
-      ),
-    );
-    if (res.code != 0) {
-      _lastError = 'IM init failed: ${res.code} ${res.desc}';
-      debugPrint(_lastError);
-      return;
+    debugPrint('[ChatService] initSDK starting (sdkAppId=${TRTCConfig.sdkAppId})...');
+    try {
+      final res = await _im.initSDK(
+        sdkAppID: TRTCConfig.sdkAppId,
+        loglevel: LogLevelEnum.V2TIM_LOG_INFO,
+        listener: V2TimSDKListener(
+          onConnecting: () => debugPrint('[ChatService] IM connecting...'),
+          onConnectSuccess: () => debugPrint('[ChatService] IM connected'),
+          onConnectFailed: (code, msg) {
+            _lastError = 'IM connect failed: $code $msg';
+            debugPrint('[ChatService] $_lastError');
+          },
+          onKickedOffline: () {
+            _lastError = 'IM kicked offline';
+            _isLoggedIn = false;
+            notifyListeners();
+          },
+          onUserSigExpired: () {
+            _lastError = 'IM UserSig expired';
+            notifyListeners();
+          },
+        ),
+      );
+      if (res.code != 0) {
+        _lastError = 'IM init failed: ${res.code} ${res.desc}';
+        debugPrint('[ChatService] $_lastError');
+        return;
+      }
+      debugPrint('[ChatService] IM SDK initialized OK');
+    } catch (e, st) {
+      _lastError = 'IM init exception: $e';
+      debugPrint('[ChatService] $_lastError');
+      debugPrint('[ChatService] stack: $st');
     }
-    debugPrint('IM SDK initialized');
   }
 
   /// Login to IM and join the chat group for the given room.
@@ -75,38 +82,53 @@ class ChatService extends ChangeNotifier {
     required String displayName,
     required String roomId,
   }) async {
-    await init();
-    _userId = userId;
-    _displayName = displayName;
-    _currentRoomId = roomId;
+    debugPrint('[ChatService] enterRoom start userId=$userId roomId=$roomId');
+    try {
+      await init();
+      _userId = userId;
+      _displayName = displayName;
+      _currentRoomId = roomId;
 
-    // Login
-    if (!_isLoggedIn) {
-      final userSig = UserSigService.generate(
-        sdkAppId: TRTCConfig.sdkAppId,
-        secretKey: TRTCConfig.secretKey,
-        userId: userId,
-        expireSeconds: TRTCConfig.userSigExpireSeconds,
-      );
-      final loginRes = await _im.login(userID: userId, userSig: userSig);
-      if (loginRes.code != 0) {
-        _lastError = 'IM login failed: ${loginRes.code} ${loginRes.desc}';
-        debugPrint(_lastError);
-        return false;
+      // Login
+      if (!_isLoggedIn) {
+        debugPrint('[ChatService] generating UserSig...');
+        final userSig = UserSigService.generate(
+          sdkAppId: TRTCConfig.sdkAppId,
+          secretKey: TRTCConfig.secretKey,
+          userId: userId,
+          expireSeconds: TRTCConfig.userSigExpireSeconds,
+        );
+        debugPrint('[ChatService] UserSig generated (len=${userSig.length}), calling login...');
+        final loginRes = await _im.login(userID: userId, userSig: userSig);
+        debugPrint('[ChatService] login result: code=${loginRes.code} desc=${loginRes.desc}');
+        if (loginRes.code != 0) {
+          _lastError = 'IM login failed: ${loginRes.code} ${loginRes.desc}';
+          debugPrint('[ChatService] $_lastError');
+          return false;
+        }
+        await _im.setSelfInfo(userFullInfo: V2TimUserFullInfo(nickName: displayName));
+        _isLoggedIn = true;
+        debugPrint('[ChatService] IM logged in as $displayName ($userId)');
+      } else {
+        debugPrint('[ChatService] already logged in, skipping login');
       }
-      await _im.setSelfInfo(userFullInfo: V2TimUserFullInfo(nickName: displayName));
-      _isLoggedIn = true;
-      debugPrint('IM logged in as $displayName ($userId)');
+
+      // Setup message listener
+      await _im.getMessageManager().addAdvancedMsgListener(listener: _msgListener);
+
+      // Join group (create if not exists via AVChatRoom auto-create)
+      await _joinGroup(roomId);
+
+      notifyListeners();
+      debugPrint('[ChatService] enterRoom success');
+      return true;
+    } catch (e, st) {
+      _lastError = 'IM enterRoom exception: $e';
+      debugPrint('[ChatService] $_lastError');
+      debugPrint('[ChatService] stack: $st');
+      notifyListeners();
+      return false;
     }
-
-    // Setup message listener
-    await _im.getMessageManager().addAdvancedMsgListener(listener: _msgListener);
-
-    // Join group (create if not exists via AVChatRoom auto-create)
-    await _joinGroup(roomId);
-
-    notifyListeners();
-    return true;
   }
 
   Future<void> _joinGroup(String groupId) async {

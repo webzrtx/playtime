@@ -62,15 +62,20 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
   }
 
   Future<void> _initAndEnter() async {
+    debugPrint('[VoiceRoom] _initAndEnter start');
     final status = await Permission.microphone.request();
     if (status != PermissionStatus.granted) {
+      debugPrint('[VoiceRoom] mic permission denied');
       if (mounted) setState(() => _isJoined = true);
       return;
     }
+    final userId = _getUserId();
+    final displayName = _getDisplayName();
+    _lastUserId = userId;
+    debugPrint('[VoiceRoom] userId=$userId displayName=$displayName roomId=$_roomId');
+
+    // TRTC init/join (may throw — we still try IM regardless)
     try {
-      final userId = _getUserId();
-      final displayName = _getDisplayName();
-      _lastUserId = userId;
       await _trtc.initialize();
       if (widget.isHost) {
         await _trtc.createRoom(roomId: _roomId, userId: userId, displayName: displayName);
@@ -78,17 +83,26 @@ class _VoiceRoomScreenState extends State<VoiceRoomScreen> {
         await _trtc.joinRoom(roomId: _roomId, userId: userId, displayName: displayName);
       }
       _trtc.addListener(_onUpdate);
-      // Enter IM chat room (non-blocking — audio works even if chat fails)
-      _chat.enterRoom(userId: userId, displayName: displayName, roomId: _roomId).then((_) {
-        _chat.addListener(_onUpdate);
-        if (mounted) setState(() {});
-      });
-      if (mounted) setState(() => _isJoined = true);
-    } catch (e) {
-      debugPrint('TRTC init error: $e');
+      debugPrint('[VoiceRoom] TRTC joined OK');
+    } catch (e, st) {
+      debugPrint('[VoiceRoom] TRTC error: $e');
+      debugPrint('[VoiceRoom] TRTC stack: $st');
       _trtc.addListener(_onUpdate);
-      if (mounted) setState(() => _isJoined = true);
     }
+
+    // IM chat — always attempt, independent of TRTC success
+    debugPrint('[VoiceRoom] calling _chat.enterRoom...');
+    _chat.enterRoom(userId: userId, displayName: displayName, roomId: _roomId).then((ok) {
+      debugPrint('[VoiceRoom] _chat.enterRoom returned $ok');
+      _chat.addListener(_onUpdate);
+      if (mounted) setState(() {});
+    }).catchError((e, st) {
+      debugPrint('[VoiceRoom] _chat.enterRoom ERROR: $e');
+      debugPrint('[VoiceRoom] _chat.enterRoom stack: $st');
+      if (mounted) setState(() {});
+    });
+
+    if (mounted) setState(() => _isJoined = true);
   }
 
   void _onUpdate() {
